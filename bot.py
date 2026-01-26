@@ -1,11 +1,12 @@
-import requests, pandas as pd, datetime, random, json, os, time
+import requests, pandas as pd, datetime, random, json, os
 
-# ====== CONFIG ======
-BOT_TOKEN = "8224096856:AAGQaxua-UPOyj94xke_Wmec7_xxMmte5WY"
-CHAT_ID   = "1373520877"
-PAIR = "EURUSD"
-TF   = "M5"
-SLEEP_SECONDS = 300  # 5 menit
+# ====== CONFIG (ENV) ======
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID   = os.getenv("CHAT_ID")
+API_KEY   = os.getenv("API_KEY")
+
+PAIR = "EUR/USD"
+TF   = "M30"
 
 # ====== FILES ======
 MEMORY_FILE = "memory.json"
@@ -18,7 +19,7 @@ if not os.path.exists(MEMORY_FILE):
     json.dump({}, open(MEMORY_FILE, "w"))
 
 if not os.path.exists(CONF_FILE):
-    json.dump({"min_confidence": 65}, open(CONF_FILE, "w"))
+    json.dump({"min_confidence": 70}, open(CONF_FILE, "w"))
 
 if not os.path.exists(EQUITY_FILE):
     json.dump({"balance": 1000.0, "history": []}, open(EQUITY_FILE, "w"))
@@ -33,61 +34,85 @@ def send_telegram(text):
     payload = {"chat_id": CHAT_ID, "text": text}
     requests.post(url, data=payload, timeout=10)
 
-# ====== MARKET DATA (DEMO) ======
-# GANTI NANTI DENGAN DATA REAL (API / CSV)
+# ====== MARKET DATA (TWELVEDATA) ======
 def get_market_data():
-    prices = [100,101,102,101,103,105,104,103,102,101,102,103,104]
-    return pd.DataFrame({"close": prices})
+    url = "https://api.twelvedata.com/time_series"
+    params = {
+        "symbol": PAIR,
+        "interval": "30min",
+        "outputsize": 120,
+        "apikey": API_KEY
+    }
 
-# ====== ANALYSIS ======
+    r = requests.get(url, params=params, timeout=10)
+    data = r.json()
+
+    if "values" not in data:
+        raise Exception(f"API ERROR: {data}")
+
+    df = pd.DataFrame(data["values"])
+    df["close"] = df["close"].astype(float)
+    df = df.iloc[::-1].reset_index(drop=True)
+    return df
+
+# ====== ANALYSIS (M30) ======
 def analyze():
     df = get_market_data()
-    df["ema_fast"] = df["close"].ewm(span=5).mean()
-    df["ema_slow"] = df["close"].ewm(span=10).mean()
+
+    df["ema_fast"] = df["close"].ewm(span=20).mean()
+    df["ema_slow"] = df["close"].ewm(span=50).mean()
 
     delta = df["close"].diff()
     gain = delta.where(delta > 0, 0)
     loss = -delta.where(delta < 0, 0)
-    rs = gain.rolling(7).mean() / loss.rolling(7).mean()
+    rs = gain.rolling(14).mean() / loss.rolling(14).mean()
     df["rsi"] = 100 - (100 / (1 + rs))
 
     last = df.iloc[-1]
 
-    # State sederhana
     trend = "UP" if last["ema_fast"] > last["ema_slow"] else "DOWN"
-    rsi_zone = "LOW" if last["rsi"] < 35 else "HIGH" if last["rsi"] > 65 else "MID"
+
+    if last["rsi"] < 35:
+        rsi_zone = "OVERSOLD"
+    elif last["rsi"] > 65:
+        rsi_zone = "OVERBOUGHT"
+    else:
+        rsi_zone = "NORMAL"
+
     state = f"{trend}_{rsi_zone}"
 
     if state not in memory:
         memory[state] = {"BUY": 0, "SELL": 0, "WAIT": 0}
 
-    # Confidence
     confidence = 0
     reason = []
 
-    if trend == "UP":
-        confidence += 40
-        reason.append("EMA fast > slow")
-    if 30 < last["rsi"] < 70:
+    confidence += 40
+    reason.append("EMA trend confirmed")
+
+    if rsi_zone == "NORMAL":
         confidence += 30
         reason.append("RSI normal zone")
+    elif rsi_zone == "OVERSOLD" and trend == "UP":
+        confidence += 20
+        reason.append("RSI oversold in uptrend")
+    elif rsi_zone == "OVERBOUGHT" and trend == "DOWN":
+        confidence += 20
+        reason.append("RSI overbought in downtrend")
 
-    confidence += random.randint(0, 10)
+    confidence += random.randint(0, 5)
 
-    # Action by memory score
     action = max(memory[state], key=memory[state].get)
 
-    # Exploration kecil
-    if random.random() < 0.1:
+    if random.random() < 0.05:
         action = random.choice(["BUY", "SELL", "WAIT"])
 
-    # Confidence adaptive filter
     if confidence < conf["min_confidence"]:
         action = "WAIT"
 
     return action, confidence, reason, state
 
-# ====== UPDATE FROM RESULT ======
+# ====== LEARNING UPDATE ======
 def update_learning(state, action):
     if not os.path.exists(RESULT_FILE):
         return
@@ -98,15 +123,13 @@ def update_learning(state, action):
     status, profit = content.split(",")
     profit = float(profit)
 
-    # Update memory
     if status == "WIN":
         memory[state][action] += 1
-        conf["min_confidence"] = max(55, conf["min_confidence"] - 1)
+        conf["min_confidence"] = max(60, conf["min_confidence"] - 1)
     else:
         memory[state][action] -= 1
         conf["min_confidence"] = min(85, conf["min_confidence"] + 2)
 
-    # Update equity
     equity["balance"] += profit
     equity["history"].append({
         "time": datetime.datetime.now().isoformat(),
@@ -119,28 +142,25 @@ def update_learning(state, action):
     json.dump(conf, open(CONF_FILE, "w"), indent=2)
     json.dump(equity, open(EQUITY_FILE, "w"), indent=2)
 
-# ====== MAIN LOOP ======
-print("AI TELEGRAM STARTED...")
-while True:
-    try:
-        action, confidence, reason, state = analyze()
+# ====== MAIN (GITHUB ACTIONS FRIENDLY) ======
+def main():
+    action, confidence, reason, state = analyze()
 
-        msg = (
-            f"PAIR: {PAIR}\n"
-            f"TF: {TF}\n"
-            f"SIGNAL: {action}\n"
-            f"CONFIDENCE: {confidence}% (min {conf['min_confidence']}%)\n"
-            f"STATE: {state}\n"
-            f"REASON:\n- " + "\n- ".join(reason) + "\n"
-            f"TIME: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        )
+    msg = (
+        f"PAIR: {PAIR}\n"
+        f"TF: {TF}\n"
+        f"SIGNAL: {action}\n"
+        f"CONFIDENCE: {confidence}% (min {conf['min_confidence']}%)\n"
+        f"STATE: {state}\n"
+        f"REASON:\n- " + "\n- ".join(reason) + "\n"
+        f"TIME: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    )
 
-        if action != "WAIT":
-            send_telegram(msg)
+    if action != "WAIT":
+        send_telegram(msg)
 
-        update_learning(state, action)
-        time.sleep(SLEEP_SECONDS)
+    update_learning(state, action)
 
-    except Exception as e:
-        send_telegram(f"ERROR: {e}")
-        time.sleep(60)
+
+if __name__ == "__main__":
+    main()
