@@ -5,7 +5,10 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID   = os.getenv("CHAT_ID")
 API_KEY   = os.getenv("API_KEY")
 
-PAIR = "EUR/USD"
+if not BOT_TOKEN or not CHAT_ID or not API_KEY:
+    raise Exception("ENV missing: BOT_TOKEN / CHAT_ID / API_KEY")
+
+PAIR = "EURUSD"
 TF   = "M30"
 
 # ====== FILES ======
@@ -34,7 +37,7 @@ def send_telegram(text):
     payload = {"chat_id": CHAT_ID, "text": text}
     requests.post(url, data=payload, timeout=10)
 
-# ====== MARKET DATA (TWELVEDATA) ======
+# ====== MARKET DATA ======
 def get_market_data():
     url = "https://api.twelvedata.com/time_series"
     params = {
@@ -55,7 +58,7 @@ def get_market_data():
     df = df.iloc[::-1].reset_index(drop=True)
     return df
 
-# ====== ANALYSIS (M30) ======
+# ====== ANALYSIS ======
 def analyze():
     df = get_market_data()
 
@@ -84,11 +87,8 @@ def analyze():
     if state not in memory:
         memory[state] = {"BUY": 0, "SELL": 0, "WAIT": 0}
 
-    confidence = 0
-    reason = []
-
-    confidence += 40
-    reason.append("EMA trend confirmed")
+    confidence = 40
+    reason = ["EMA trend confirmed"]
 
     if rsi_zone == "NORMAL":
         confidence += 30
@@ -112,37 +112,7 @@ def analyze():
 
     return action, confidence, reason, state
 
-# ====== LEARNING UPDATE ======
-def update_learning(state, action):
-    if not os.path.exists(RESULT_FILE):
-        return
-
-    content = open(RESULT_FILE).read().strip()
-    os.remove(RESULT_FILE)
-
-    status, profit = content.split(",")
-    profit = float(profit)
-
-    if status == "WIN":
-        memory[state][action] += 1
-        conf["min_confidence"] = max(60, conf["min_confidence"] - 1)
-    else:
-        memory[state][action] -= 1
-        conf["min_confidence"] = min(85, conf["min_confidence"] + 2)
-
-    equity["balance"] += profit
-    equity["history"].append({
-        "time": datetime.datetime.now().isoformat(),
-        "result": status,
-        "profit": profit,
-        "balance": equity["balance"]
-    })
-
-    json.dump(memory, open(MEMORY_FILE, "w"), indent=2)
-    json.dump(conf, open(CONF_FILE, "w"), indent=2)
-    json.dump(equity, open(EQUITY_FILE, "w"), indent=2)
-
-# ====== MAIN (GITHUB ACTIONS FRIENDLY) ======
+# ====== MAIN ======
 def main():
     action, confidence, reason, state = analyze()
 
