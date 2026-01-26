@@ -1,4 +1,4 @@
-import requests, pandas as pd, datetime, random, json, os
+import requests, pandas as pd, datetime, random, json, os, time
 
 # ====== CONFIG (ENV) ======
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -8,6 +8,10 @@ API_KEY   = os.getenv("API_KEY")
 if not BOT_TOKEN or not CHAT_ID or not API_KEY:
     raise Exception("ENV missing: BOT_TOKEN / CHAT_ID / API_KEY")
 
+<<<<<<< HEAD
+=======
+# TwelveData format wajib
+>>>>>>> 1de1c63 (Fix TwelveData symbol format + API safety)
 PAIR = "EUR/USD"
 TF   = "M30"
 
@@ -15,7 +19,6 @@ TF   = "M30"
 MEMORY_FILE = "memory.json"
 CONF_FILE   = "confidence.json"
 EQUITY_FILE = "equity.json"
-RESULT_FILE = "result.txt"
 
 # ====== INIT FILES ======
 if not os.path.exists(MEMORY_FILE):
@@ -35,7 +38,10 @@ equity = json.load(open(EQUITY_FILE))
 def send_telegram(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text}
-    requests.post(url, data=payload, timeout=10)
+    try:
+        requests.post(url, data=payload, timeout=10)
+    except Exception as e:
+        print("Telegram error:", e)
 
 # ====== MARKET DATA ======
 def get_market_data():
@@ -47,11 +53,17 @@ def get_market_data():
         "apikey": API_KEY
     }
 
-    r = requests.get(url, params=params, timeout=10)
+    r = requests.get(url, params=params, timeout=15)
     data = r.json()
 
+    # Debug log biar kelihatan di GitHub Actions
+    if data.get("status") == "error":
+        print("TwelveData ERROR:", data)
+        return None
+
     if "values" not in data:
-        raise Exception(f"API ERROR: {data}")
+        print("Invalid API response:", data)
+        return None
 
     df = pd.DataFrame(data["values"])
     df["close"] = df["close"].astype(float)
@@ -61,6 +73,9 @@ def get_market_data():
 # ====== ANALYSIS ======
 def analyze():
     df = get_market_data()
+
+    if df is None or len(df) < 60:
+        return "WAIT", 0, ["Market data unavailable"], "NO_DATA"
 
     df["ema_fast"] = df["close"].ewm(span=20).mean()
     df["ema_slow"] = df["close"].ewm(span=50).mean()
@@ -85,7 +100,7 @@ def analyze():
     state = f"{trend}_{rsi_zone}"
 
     if state not in memory:
-        memory[state] = {"BUY": 0, "SELL": 0, "WAIT": 0}
+        memory[state] = {"BUY": 1, "SELL": 1, "WAIT": 1}
 
     confidence = 40
     reason = ["EMA trend confirmed"]
@@ -126,11 +141,10 @@ def main():
         f"TIME: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
     )
 
+    print(msg)
+
     if action != "WAIT":
         send_telegram(msg)
-
-    update_learning(state, action)
-
 
 if __name__ == "__main__":
     main()
