@@ -8,10 +8,6 @@ API_KEY   = os.getenv("API_KEY")
 if not BOT_TOKEN or not CHAT_ID or not API_KEY:
     raise Exception("ENV missing: BOT_TOKEN / CHAT_ID / API_KEY")
 
-<<<<<<< HEAD
-=======
-# TwelveData format wajib
->>>>>>> 1de1c63 (Fix TwelveData symbol format + API safety)
 PAIR = "EUR/USD"
 TF   = "M30"
 
