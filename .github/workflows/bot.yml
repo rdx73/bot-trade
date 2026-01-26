@@ -1,24 +1,27 @@
-name: Auto Signal Bot
+name: Auto Trade Bot
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/15 * * * *"  # tiap 15 menit
+    - cron: "*/15 * * * *"   # jalan tiap 15 menit
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.12"
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          pip install pandas numpy ta requests
 
       - name: Run bot
         run: |
