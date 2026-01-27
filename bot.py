@@ -144,11 +144,9 @@ def analyze():
 def update_learning(action, tp, sl):
     if action == "WAIT" or tp is None or sl is None:
         return
-
     df = get_market_data()
     if df is None or len(df) == 0:
         return
-
     last_price = df["close"].iloc[-1]
 
     status = None
@@ -170,11 +168,10 @@ def update_learning(action, tp, sl):
             profit = df["close"].iloc[-2] - sl
 
     if status:
-        # Kirim notifikasi
-        msg = f"⚡ TP/SL Triggered ⚡\nPAIR: {PAIR}\nACTION: {action}\nRESULT: {status}\nPROFIT: {profit:.5f}\nTIME: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        wib_now = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
+        msg = f"⚡ TP/SL Triggered ⚡\nPAIR: {PAIR}\nACTION: {action}\nRESULT: {status}\nPROFIT: {profit:.5f}\nTIME: {wib_now.strftime('%Y-%m-%d %H:%M')}"
         send_telegram(msg)
 
-        # Update memory & equity
         state = f"{'UP' if action=='BUY' else 'DOWN'}_NORMAL"
         if state not in memory:
             memory[state] = {"BUY": 1, "SELL": 1, "WAIT": 1}
@@ -188,7 +185,7 @@ def update_learning(action, tp, sl):
 
         equity["balance"] += profit
         equity["history"].append({
-            "time": datetime.datetime.now().isoformat(),
+            "time": wib_now.isoformat(),
             "result": status,
             "profit": profit,
             "balance": equity["balance"]
@@ -202,6 +199,7 @@ def update_learning(action, tp, sl):
 def main():
     action, confidence, reason, state, tp, sl, hold = analyze()
 
+    wib_now = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
     msg = (
         f"PAIR: {PAIR}\nTF: {TF}\nSIGNAL: {action}\nCONFIDENCE: {confidence}% (min {conf['min_confidence']}%)\nSTATE: {state}\n"
         f"REASON:\n- " + "\n- ".join(reason)
@@ -210,7 +208,7 @@ def main():
     if tp and sl:
         msg += f"\nTP: {tp:.5f}\nSL: {sl:.5f}\nHOLD: {hold[0]}-{hold[1]} menit"
 
-    msg += f"\nTIME: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    msg += f"\nTIME: {wib_now.strftime('%Y-%m-%d %H:%M')}"
 
     print(msg)
 
