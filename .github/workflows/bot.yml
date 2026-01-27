@@ -5,6 +5,10 @@ on:
   schedule:
     - cron: "*/30 * * * *"   # jalan tiap 30 menit (M30)
 
+concurrency:
+  group: auto-trade-bot
+  cancel-in-progress: true
+
 jobs:
   run-bot:
     runs-on: ubuntu-latest
