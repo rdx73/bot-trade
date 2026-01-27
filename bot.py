@@ -1,4 +1,5 @@
-import requests, pandas as pd, datetime, random, json, os, time
+import requests, pandas as pd, random, json, os, time
+from datetime import datetime, timedelta, timezone
 
 # ====== CONFIG (ENV) ======
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -10,6 +11,12 @@ if not BOT_TOKEN or not CHAT_ID or not API_KEY:
 
 PAIR = "EUR/USD"
 TF   = "M30"
+
+# ====== TIMEZONE ======
+WIB = timezone(timedelta(hours=7))
+
+def now_wib():
+    return datetime.now(timezone.utc).astimezone(WIB)
 
 # ====== FILES ======
 MEMORY_FILE = "memory.json"
@@ -50,18 +57,14 @@ def get_market_data():
     r = requests.get(url, params=params, timeout=15)
     data = r.json()
 
-    if data.get("status") == "error":
+    if data.get("status") == "error" or "values" not in data:
         print("TwelveData ERROR:", data)
-        return None
-
-    if "values" not in data:
-        print("Invalid API response:", data)
         return None
 
     df = pd.DataFrame(data["values"])
     df["close"] = df["close"].astype(float)
-    df["high"] = df["high"].astype(float)
-    df["low"] = df["low"].astype(float)
+    df["high"]  = df["high"].astype(float)
+    df["low"]   = df["low"].astype(float)
     df = df.iloc[::-1].reset_index(drop=True)
     return df
 
@@ -74,23 +77,25 @@ def analyze():
     # EMA & RSI
     df["ema_fast"] = df["close"].ewm(span=20).mean()
     df["ema_slow"] = df["close"].ewm(span=50).mean()
+
     delta = df["close"].diff()
-    gain = delta.where(delta > 0, 0)
-    loss = -delta.where(delta < 0, 0)
-    rs = gain.rolling(14).mean() / loss.rolling(14).mean()
+    gain  = delta.where(delta > 0, 0)
+    loss  = -delta.where(delta < 0, 0)
+    rs    = gain.rolling(14).mean() / loss.rolling(14).mean()
     df["rsi"] = 100 - (100 / (1 + rs))
 
-    # ATR untuk TP/SL
+    # ATR
     df["tr"] = df[["high","low","close"]].apply(
         lambda x: max(
-            x["high"]-x["low"],
-            abs(x["high"]-x["close"]),
-            abs(x["low"]-x["close"])
+            x["high"] - x["low"],
+            abs(x["high"] - x["close"]),
+            abs(x["low"]  - x["close"])
         ), axis=1
     )
     df["atr"] = df["tr"].rolling(14).mean()
-    last_atr = df["atr"].iloc[-1]
+
     last_price = df["close"].iloc[-1]
+    last_atr   = df["atr"].iloc[-1]
 
     trend = "UP" if df["ema_fast"].iloc[-1] > df["ema_slow"].iloc[-1] else "DOWN"
 
@@ -102,9 +107,7 @@ def analyze():
         rsi_zone = "NORMAL"
 
     state = f"{trend}_{rsi_zone}"
-
-    if state not in memory:
-        memory[state] = {"BUY": 1, "SELL": 1, "WAIT": 1}
+    memory.setdefault(state, {"BUY": 1, "SELL": 1, "WAIT": 1})
 
     confidence = 40
     reason = ["EMA trend confirmed"]
@@ -120,13 +123,15 @@ def analyze():
         reason.append("RSI overbought in downtrend")
 
     confidence += random.randint(0, 5)
+
     action = max(memory[state], key=memory[state].get)
     if random.random() < 0.05:
         action = random.choice(["BUY","SELL","WAIT"])
+
     if confidence < conf["min_confidence"]:
         action = "WAIT"
 
-    # TP, SL, Durasi
+    # TP / SL
     if action == "BUY":
         tp = last_price + last_atr * 1.5
         sl = last_price - last_atr * 1.0
@@ -136,18 +141,19 @@ def analyze():
     else:
         tp = sl = None
 
-    hold_time_min = 30
-    hold_time_max = 120
-    return action, confidence, reason, state, tp, sl, (hold_time_min, hold_time_max)
+    return action, confidence, reason, state, tp, sl, (30, 120)
 
 # ====== UPDATE LEARNING ======
 def update_learning(action, tp, sl):
-    if action == "WAIT" or tp is None or sl is None:
+    if action == "WAIT":
         return
+
     df = get_market_data()
-    if df is None or len(df) == 0:
+    if df is None or len(df) < 2:
         return
+
     last_price = df["close"].iloc[-1]
+    prev_price = df["close"].iloc[-2]
 
     status = None
     profit = 0.0
@@ -155,60 +161,57 @@ def update_learning(action, tp, sl):
     if action == "BUY":
         if last_price >= tp:
             status = "WIN"
-            profit = tp - df["close"].iloc[-2]
+            profit = tp - prev_price
         elif last_price <= sl:
             status = "LOSS"
-            profit = sl - df["close"].iloc[-2]
+            profit = sl - prev_price
+
     elif action == "SELL":
         if last_price <= tp:
             status = "WIN"
-            profit = df["close"].iloc[-2] - tp
+            profit = prev_price - tp
         elif last_price >= sl:
             status = "LOSS"
-            profit = df["close"].iloc[-2] - sl
+            profit = prev_price - sl
 
-    if status:
-        wib_now = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
-        msg = f"⚡ TP/SL Triggered ⚡\nPAIR: {PAIR}\nACTION: {action}\nRESULT: {status}\nPROFIT: {profit:.5f}\nTIME: {wib_now.strftime('%Y-%m-%d %H:%M')}"
-        send_telegram(msg)
+    if not status:
+        return
 
-        state = f"{'UP' if action=='BUY' else 'DOWN'}_NORMAL"
-        if state not in memory:
-            memory[state] = {"BUY": 1, "SELL": 1, "WAIT": 1}
+    wib_now = now_wib()
 
-        if status == "WIN":
-            memory[state][action] += 1
-            conf["min_confidence"] = max(60, conf["min_confidence"] - 1)
-        else:
-            memory[state][action] -= 1
-            conf["min_confidence"] = min(85, conf["min_confidence"] + 2)
+    send_telegram(
+        f"⚡ TP/SL Triggered ⚡\n"
+        f"PAIR: {PAIR}\nACTION: {action}\nRESULT: {status}\n"
+        f"PROFIT: {profit:.5f}\nTIME: {wib_now.strftime('%Y-%m-%d %H:%M')} WIB"
+    )
 
-        equity["balance"] += profit
-        equity["history"].append({
-            "time": wib_now.isoformat(),
-            "result": status,
-            "profit": profit,
-            "balance": equity["balance"]
-        })
+    equity["balance"] += profit
+    equity["history"].append({
+        "time": wib_now.isoformat(),
+        "result": status,
+        "profit": profit,
+        "balance": equity["balance"]
+    })
 
-        json.dump(memory, open(MEMORY_FILE, "w"), indent=2)
-        json.dump(conf, open(CONF_FILE, "w"), indent=2)
-        json.dump(equity, open(EQUITY_FILE, "w"), indent=2)
+    json.dump(memory, open(MEMORY_FILE, "w"), indent=2)
+    json.dump(conf, open(CONF_FILE, "w"), indent=2)
+    json.dump(equity, open(EQUITY_FILE, "w"), indent=2)
 
 # ====== MAIN ======
 def main():
     action, confidence, reason, state, tp, sl, hold = analyze()
+    wib_now = now_wib()
 
-    wib_now = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
     msg = (
-        f"PAIR: {PAIR}\nTF: {TF}\nSIGNAL: {action}\nCONFIDENCE: {confidence}% (min {conf['min_confidence']}%)\nSTATE: {state}\n"
-        f"REASON:\n- " + "\n- ".join(reason)
+        f"PAIR: {PAIR}\nTF: {TF}\nSIGNAL: {action}\n"
+        f"CONFIDENCE: {confidence}% (min {conf['min_confidence']}%)\n"
+        f"STATE: {state}\nREASON:\n- " + "\n- ".join(reason)
     )
 
     if tp and sl:
         msg += f"\nTP: {tp:.5f}\nSL: {sl:.5f}\nHOLD: {hold[0]}-{hold[1]} menit"
 
-    msg += f"\nTIME: {wib_now.strftime('%Y-%m-%d %H:%M')}"
+    msg += f"\nTIME: {wib_now.strftime('%Y-%m-%d %H:%M')} WIB"
 
     print(msg)
 
