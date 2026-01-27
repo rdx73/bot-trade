@@ -1,13 +1,14 @@
-import requests, pandas as pd, random, json, os, time
+import requests, pandas as pd, random, json, os
 from datetime import datetime, timedelta, timezone
 
 # ====== CONFIG (ENV) ======
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID   = os.getenv("CHAT_ID")
 API_KEY   = os.getenv("API_KEY")
+PASTEBIN_RAW_URL = os.getenv("PASTEBIN_RAW_URL")
 
-if not BOT_TOKEN or not CHAT_ID or not API_KEY:
-    raise Exception("ENV missing: BOT_TOKEN / CHAT_ID / API_KEY")
+if not BOT_TOKEN or not CHAT_ID or not API_KEY or not PASTEBIN_RAW_URL:
+    raise Exception("ENV missing: BOT_TOKEN / CHAT_ID / API_KEY / PASTEBIN_RAW_URL")
 
 PAIR = "EUR/USD"
 TF   = "M30"
@@ -18,23 +19,8 @@ WIB = timezone(timedelta(hours=7))
 def now_wib():
     return datetime.now(timezone.utc).astimezone(WIB)
 
-# ====== FILES ======
-MEMORY_FILE = "memory.json"
-CONF_FILE   = "confidence.json"
-EQUITY_FILE = "equity.json"
-
-# ====== INIT FILES ======
-for f, default in [
-    (MEMORY_FILE, {}),
-    (CONF_FILE, {"min_confidence": 70}),
-    (EQUITY_FILE, {"balance": 1000.0, "history": []})
-]:
-    if not os.path.exists(f):
-        json.dump(default, open(f, "w"))
-
-memory = json.load(open(MEMORY_FILE))
-conf   = json.load(open(CONF_FILE))
-equity = json.load(open(EQUITY_FILE))
+# ====== CONF ======
+MIN_CONFIDENCE = 70
 
 # ====== TELEGRAM ======
 def send_telegram(text):
@@ -44,6 +30,18 @@ def send_telegram(text):
         requests.post(url, data=payload, timeout=10)
     except Exception as e:
         print("Telegram error:", e)
+
+# ====== LOAD MEMORY FROM PASTEBIN ======
+def load_memory():
+    try:
+        r = requests.get(PASTEBIN_RAW_URL, timeout=10)
+        data = r.json()
+        if not isinstance(data, dict):
+            raise Exception("Invalid memory format")
+        return data
+    except Exception as e:
+        print("Pastebin memory load failed:", e)
+        return {}
 
 # ====== MARKET DATA ======
 def get_market_data():
@@ -62,9 +60,9 @@ def get_market_data():
         return None
 
     df = pd.DataFrame(data["values"])
-    df["close"] = df["close"].astype(float)
-    df["high"]  = df["high"].astype(float)
-    df["low"]   = df["low"].astype(float)
+    for c in ["close", "high", "low"]:
+        df[c] = df[c].astype(float)
+
     df = df.iloc[::-1].reset_index(drop=True)
     return df
 
@@ -74,22 +72,25 @@ def analyze():
     if df is None or len(df) < 60:
         return "WAIT", 0, ["Market data unavailable"], "NO_DATA", None, None, None
 
-    # EMA & RSI
+    memory = load_memory()
+
+    # EMA
     df["ema_fast"] = df["close"].ewm(span=20).mean()
     df["ema_slow"] = df["close"].ewm(span=50).mean()
 
+    # RSI
     delta = df["close"].diff()
-    gain  = delta.where(delta > 0, 0)
-    loss  = -delta.where(delta < 0, 0)
-    rs    = gain.rolling(14).mean() / loss.rolling(14).mean()
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    rs = gain.rolling(14).mean() / loss.rolling(14).mean()
     df["rsi"] = 100 - (100 / (1 + rs))
 
     # ATR
-    df["tr"] = df[["high","low","close"]].apply(
+    df["tr"] = df[["high", "low", "close"]].apply(
         lambda x: max(
             x["high"] - x["low"],
             abs(x["high"] - x["close"]),
-            abs(x["low"]  - x["close"])
+            abs(x["low"] - x["close"])
         ), axis=1
     )
     df["atr"] = df["tr"].rolling(14).mean()
@@ -107,7 +108,6 @@ def analyze():
         rsi_zone = "NORMAL"
 
     state = f"{trend}_{rsi_zone}"
-    memory.setdefault(state, {"BUY": 1, "SELL": 1, "WAIT": 1})
 
     confidence = 40
     reason = ["EMA trend confirmed"]
@@ -124,14 +124,12 @@ def analyze():
 
     confidence += random.randint(0, 5)
 
-    action = max(memory[state], key=memory[state].get)
-    if random.random() < 0.05:
-        action = random.choice(["BUY","SELL","WAIT"])
+    state_pref = memory.get(state, {"BUY": 1, "SELL": 1, "WAIT": 1})
+    action = max(state_pref, key=state_pref.get)
 
-    if confidence < conf["min_confidence"]:
+    if confidence < MIN_CONFIDENCE:
         action = "WAIT"
 
-    # TP / SL
     if action == "BUY":
         tp = last_price + last_atr * 1.5
         sl = last_price - last_atr * 1.0
@@ -143,60 +141,6 @@ def analyze():
 
     return action, confidence, reason, state, tp, sl, (30, 120)
 
-# ====== UPDATE LEARNING ======
-def update_learning(action, tp, sl):
-    if action == "WAIT":
-        return
-
-    df = get_market_data()
-    if df is None or len(df) < 2:
-        return
-
-    last_price = df["close"].iloc[-1]
-    prev_price = df["close"].iloc[-2]
-
-    status = None
-    profit = 0.0
-
-    if action == "BUY":
-        if last_price >= tp:
-            status = "WIN"
-            profit = tp - prev_price
-        elif last_price <= sl:
-            status = "LOSS"
-            profit = sl - prev_price
-
-    elif action == "SELL":
-        if last_price <= tp:
-            status = "WIN"
-            profit = prev_price - tp
-        elif last_price >= sl:
-            status = "LOSS"
-            profit = prev_price - sl
-
-    if not status:
-        return
-
-    wib_now = now_wib()
-
-    send_telegram(
-        f"⚡ TP/SL Triggered ⚡\n"
-        f"PAIR: {PAIR}\nACTION: {action}\nRESULT: {status}\n"
-        f"PROFIT: {profit:.5f}\nTIME: {wib_now.strftime('%Y-%m-%d %H:%M')} WIB"
-    )
-
-    equity["balance"] += profit
-    equity["history"].append({
-        "time": wib_now.isoformat(),
-        "result": status,
-        "profit": profit,
-        "balance": equity["balance"]
-    })
-
-    json.dump(memory, open(MEMORY_FILE, "w"), indent=2)
-    json.dump(conf, open(CONF_FILE, "w"), indent=2)
-    json.dump(equity, open(EQUITY_FILE, "w"), indent=2)
-
 # ====== MAIN ======
 def main():
     action, confidence, reason, state, tp, sl, hold = analyze()
@@ -204,7 +148,7 @@ def main():
 
     msg = (
         f"PAIR: {PAIR}\nTF: {TF}\nSIGNAL: {action}\n"
-        f"CONFIDENCE: {confidence}% (min {conf['min_confidence']}%)\n"
+        f"CONFIDENCE: {confidence}% (min {MIN_CONFIDENCE}%)\n"
         f"STATE: {state}\nREASON:\n- " + "\n- ".join(reason)
     )
 
@@ -217,7 +161,6 @@ def main():
 
     if action != "WAIT":
         send_telegram(msg)
-        update_learning(action, tp, sl)
 
 if __name__ == "__main__":
     main()
