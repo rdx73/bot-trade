@@ -3,7 +3,7 @@ name: Auto Trade Bot
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"   # jalan tiap 30 menit (M30)
+    - cron: "*/30 * * * *"
 
 concurrency:
   group: auto-trade-bot
@@ -32,6 +32,8 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           API_KEY: ${{ secrets.API_KEY }}
+          PASTEBIN_API_DEV_KEY: ${{ secrets.PASTEBIN_API_DEV_KEY }}
+          PASTEBIN_USERNAME: ${{ secrets.PASTEBIN_USERNAME }}
+          PASTEBIN_PASSWORD: ${{ secrets.PASTEBIN_PASSWORD }}
           PASTEBIN_RAW_URL: ${{ secrets.PASTEBIN_RAW_URL }}
-        run: |
-          python bot.py
+        run: python bot.py
