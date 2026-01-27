@@ -1,4 +1,4 @@
-import requests, pandas as pd, random, json, os, time
+import requests, pandas as pd, random, json, os
 from datetime import datetime, timedelta, timezone
 
 # ====== CONFIG (ENV) ======
@@ -20,11 +20,6 @@ TF   = "M30"
 WIB = timezone(timedelta(hours=7))
 def now_wib():
     return datetime.now(timezone.utc).astimezone(WIB)
-
-# ====== FILES ======
-MEMORY_FILE = "memory.json"
-CONF_FILE   = "confidence.json"
-EQUITY_FILE = "equity.json"
 
 # ====== TELEGRAM ======
 def send_telegram(text):
@@ -52,14 +47,12 @@ def load_memory():
     try:
         r = requests.get(PASTEBIN_RAW_URL, timeout=15)
         if r.status_code == 200:
-            mem = json.loads(r.text)
-            return mem
+            return json.loads(r.text)
     except:
         pass
     return {}
 
 def save_memory_to_pastebin(memory_dict, api_user_key):
-    # kita update paste via create new paste (Pastebin API tidak mendukung update paste lama)
     url = "https://pastebin.com/api/api_post.php"
     data = {
         "api_dev_key": PASTEBIN_API_DEV_KEY,
@@ -68,13 +61,13 @@ def save_memory_to_pastebin(memory_dict, api_user_key):
         "api_paste_code": json.dumps(memory_dict, indent=2),
         "api_paste_private": 1,
         "api_paste_name": "memory.json",
-        "api_paste_expire_date": "N"  # never expire
+        "api_paste_expire_date": "N"
     }
     r = requests.post(url, data=data, timeout=15)
     if r.status_code == 200:
         print("Memory updated to Pastebin:", r.text)
 
-# ====== INIT FILES ======
+# ====== INIT ======
 memory = load_memory()
 conf   = {"min_confidence": 70}
 equity = {"balance": 1000.0, "history": []}
@@ -125,32 +118,31 @@ def analyze():
     confidence = 40
     reason = ["EMA trend confirmed"]
     if rsi_zone=="NORMAL":
-        confidence+=30
-        reason.append("RSI normal zone")
+        confidence+=30; reason.append("RSI normal zone")
     elif rsi_zone=="OVERSOLD" and trend=="UP":
-        confidence+=20
-        reason.append("RSI oversold in uptrend")
+        confidence+=20; reason.append("RSI oversold in uptrend")
     elif rsi_zone=="OVERBOUGHT" and trend=="DOWN":
-        confidence+=20
-        reason.append("RSI overbought in downtrend")
+        confidence+=20; reason.append("RSI overbought in downtrend")
     confidence += random.randint(0,5)
 
     action = max(memory[state], key=memory[state].get)
-    if random.random()<0.05:
-        action = random.choice(["BUY","SELL","WAIT"])
-    if confidence < conf["min_confidence"]:
-        action="WAIT"
+    if random.random()<0.05: action = random.choice(["BUY","SELL","WAIT"])
+    if confidence < conf["min_confidence"]: action="WAIT"
 
     tp, sl = (None, None)
-    if action=="BUY": tp,last_price+last_atr*1.5,sl=last_price-last_atr*1.0
-    elif action=="SELL": tp,last_price-last_atr*1.5,sl=last_price+last_atr*1.0
+    if action=="BUY":
+        tp = last_price + last_atr*1.5
+        sl = last_price - last_atr*1.0
+    elif action=="SELL":
+        tp = last_price - last_atr*1.5
+        sl = last_price + last_atr*1.0
 
     return action, confidence, reason, state, tp, sl, (30,120)
 
 # ====== UPDATE LEARNING ======
 def update_learning(action,tp,sl):
     if action=="WAIT": return
-    df=get_market_data()
+    df = get_market_data()
     if df is None or len(df)<2: return
     last_price = df["close"].iloc[-1]
     prev_price = df["close"].iloc[-2]
