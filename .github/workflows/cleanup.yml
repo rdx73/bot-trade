@@ -2,8 +2,12 @@ name: Cleanup Old Workflow Runs
 
 on:
   schedule:
-    - cron: "5 0 * * *"  # jam 00:05 (setelah candle M30 terakhir)
+    - cron: "5 0 * * *"
   workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
 
 jobs:
   cleanup:
