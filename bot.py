@@ -1,4 +1,4 @@
-import requests, pandas as pd, random, json, os
+import requests, pandas as pd, random, json, os, time
 from datetime import datetime, timedelta, timezone
 
 # ====== CONFIG (ENV) ======
@@ -8,7 +8,7 @@ API_KEY   = os.getenv("API_KEY")
 PASTEBIN_API_DEV_KEY = os.getenv("PASTEBIN_API_DEV_KEY")
 PASTEBIN_USERNAME    = os.getenv("PASTEBIN_USERNAME")
 PASTEBIN_PASSWORD    = os.getenv("PASTEBIN_PASSWORD")
-PASTEBIN_RAW_URL     = os.getenv("PASTEBIN_RAW_URL")  # URL raw memory.json
+PASTEBIN_RAW_URL     = os.getenv("PASTEBIN_RAW_URL")
 
 if not all([BOT_TOKEN, CHAT_ID, API_KEY, PASTEBIN_API_DEV_KEY, PASTEBIN_USERNAME, PASTEBIN_PASSWORD, PASTEBIN_RAW_URL]):
     raise Exception("ENV missing: check all required secrets!")
@@ -88,12 +88,13 @@ def get_market_data():
     df = df.iloc[::-1].reset_index(drop=True)
     return df
 
-# ====== ANALYSIS ======
-def analyze():
+# ====== ANALYSIS (DEBUG MODE) ======
+def analyze(debug=True):
     df = get_market_data()
     if df is None or len(df) < 60:
         return "WAIT", 0, ["Market data unavailable"], "NO_DATA", None, None, None
 
+    # Indicators
     df["ema_fast"] = df["close"].ewm(span=20).mean()
     df["ema_slow"] = df["close"].ewm(span=50).mean()
     delta = df["close"].diff()
@@ -107,42 +108,66 @@ def analyze():
     last_price = df["close"].iloc[-1]
     last_atr = df["atr"].iloc[-1]
 
+    # Trend & RSI zones
     trend = "UP" if df["ema_fast"].iloc[-1] > df["ema_slow"].iloc[-1] else "DOWN"
     rsi_zone = "NORMAL"
     if df["rsi"].iloc[-1] < 35: rsi_zone="OVERSOLD"
     elif df["rsi"].iloc[-1] > 65: rsi_zone="OVERBOUGHT"
 
-    state = f"{trend}_{rsi_zone}"
+    # Determine strategy mode
+    if trend=="UP" and rsi_zone=="OVERBOUGHT":
+        mode = "counter_trend"
+    elif trend=="DOWN" and rsi_zone=="OVERSOLD":
+        mode = "counter_trend"
+    elif abs(df["ema_fast"].iloc[-1]-df["ema_slow"].iloc[-1])/last_price < 0.0015:
+        mode = "range_trade"
+    else:
+        mode = "trend_follow"
+
+    state = f"{trend}_{rsi_zone}_{mode}"
     memory.setdefault(state, {"BUY":1,"SELL":1,"WAIT":1})
 
+    # Confidence
     confidence = 40
-    reason = ["EMA trend confirmed"]
-    if rsi_zone=="NORMAL":
-        confidence+=30; reason.append("RSI normal zone")
-    elif rsi_zone=="OVERSOLD" and trend=="UP":
-        confidence+=20; reason.append("RSI oversold in uptrend")
-    elif rsi_zone=="OVERBOUGHT" and trend=="DOWN":
-        confidence+=20; reason.append("RSI overbought in downtrend")
+    reason = [f"EMA trend: {trend}, mode: {mode}"]
+    if rsi_zone=="NORMAL": confidence+=30; reason.append("RSI normal zone")
+    elif rsi_zone=="OVERSOLD" and trend=="UP": confidence+=20; reason.append("RSI oversold in uptrend")
+    elif rsi_zone=="OVERBOUGHT" and trend=="DOWN": confidence+=20; reason.append("RSI overbought in downtrend")
     confidence += random.randint(0,5)
 
+    # Decide action based on memory
     action = max(memory[state], key=memory[state].get)
     if random.random()<0.05: action = random.choice(["BUY","SELL","WAIT"])
     if confidence < conf["min_confidence"]: action="WAIT"
 
+    # TP/SL based on mode
     tp, sl = (None, None)
     if action=="BUY":
-        tp = last_price + last_atr*1.5
-        sl = last_price - last_atr*1.0
+        mult = last_atr*1.5 if mode=="trend_follow" else last_atr*1.0
+        tp = last_price + mult
+        sl = last_price - mult
     elif action=="SELL":
-        tp = last_price - last_atr*1.5
-        sl = last_price + last_atr*1.0
+        mult = last_atr*1.5 if mode=="trend_follow" else last_atr*1.0
+        tp = last_price - mult
+        sl = last_price + mult
+
+    if debug:
+        print("===== DEBUG INFO =====")
+        print(f"Last Price: {last_price:.5f}")
+        print(f"EMA Fast: {df['ema_fast'].iloc[-1]:.5f}, EMA Slow: {df['ema_slow'].iloc[-1]:.5f}")
+        print(f"RSI: {df['rsi'].iloc[-1]:.2f}, ATR: {last_atr:.5f}")
+        print(f"Trend: {trend}, RSI Zone: {rsi_zone}, Mode: {mode}")
+        print(f"Memory Probabilities: {memory[state]}")
+        print(f"Chosen Action: {action}, Confidence: {confidence}%")
+        print(f"TP: {tp:.5f}, SL: {sl:.5f}")
+        print("======================")
 
     return action, confidence, reason, state, tp, sl, (30,120)
 
 # ====== UPDATE LEARNING ======
 def update_learning(action,tp,sl):
     if action=="WAIT": return
-    df = get_market_data()
+    df=get_market_data()
     if df is None or len(df)<2: return
     last_price = df["close"].iloc[-1]
     prev_price = df["close"].iloc[-2]
@@ -163,14 +188,13 @@ def update_learning(action,tp,sl):
     equity["balance"] += profit
     equity["history"].append({"time":wib_now.isoformat(),"result":status,"profit":profit,"balance":equity["balance"]})
 
-    # update memory ke pastebin
     api_user_key = pastebin_login()
     if api_user_key:
         save_memory_to_pastebin(memory, api_user_key)
 
 # ====== MAIN ======
 def main():
-    action, confidence, reason, state, tp, sl, hold = analyze()
+    action, confidence, reason, state, tp, sl, hold = analyze(debug=True)
     wib_now = now_wib()
     msg = (
         f"PAIR:{PAIR}\nTF:{TF}\nSIGNAL:{action}\nCONFIDENCE:{confidence}% (min {conf['min_confidence']}%)\nSTATE:{state}\nREASON:\n- " +
