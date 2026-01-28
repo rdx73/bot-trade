@@ -1,4 +1,4 @@
-import requests, pandas as pd, random, json, os, time
+import requests, pandas as pd, random, json, os
 from datetime import datetime, timedelta, timezone
 
 # ====== CONFIG (ENV) ======
@@ -8,13 +8,15 @@ API_KEY   = os.getenv("API_KEY")
 PASTEBIN_API_DEV_KEY = os.getenv("PASTEBIN_API_DEV_KEY")
 PASTEBIN_USERNAME    = os.getenv("PASTEBIN_USERNAME")
 PASTEBIN_PASSWORD    = os.getenv("PASTEBIN_PASSWORD")
-PASTEBIN_RAW_URL     = os.getenv("PASTEBIN_RAW_URL")  # URL raw memory.json
+PASTEBIN_RAW_URL     = os.getenv("PASTEBIN_RAW_URL")
+PAIR_LIST = os.getenv("PAIR_LIST", "EUR/USD").split(",")  # multiple pairs via ENV
+MIN_CONFIDENCE = int(os.getenv("MIN_CONFIDENCE", 70))
+DEBUG_MODE = os.getenv("DEBUG_MODE", "False") == "True"
 
 if not all([BOT_TOKEN, CHAT_ID, API_KEY, PASTEBIN_API_DEV_KEY, PASTEBIN_USERNAME, PASTEBIN_PASSWORD, PASTEBIN_RAW_URL]):
     raise Exception("ENV missing: check all required secrets!")
 
-PAIR = "EUR/USD"
-TF   = "M30"
+TF = "M30"
 
 # ====== TIMEZONE ======
 WIB = timezone(timedelta(hours=7))
@@ -23,7 +25,6 @@ def now_wib():
 
 # ====== FILES ======
 MEMORY_FILE = "memory.json"
-CONF_FILE   = "confidence.json"
 EQUITY_FILE = "equity.json"
 
 # ====== TELEGRAM ======
@@ -72,34 +73,31 @@ def save_memory_to_pastebin(memory_dict, api_user_key):
     if r.status_code == 200:
         print("Memory updated to Pastebin:", r.text)
 
-# ====== INIT FILES ======
+# ====== INIT ======
 memory = load_memory()
-conf   = {"min_confidence": 70}
 equity = {"balance": 1000.0, "history": []}
 
 # ====== MARKET DATA ======
-def get_market_data():
+def get_market_data(pair):
     url = "https://api.twelvedata.com/time_series"
-    params = {"symbol": PAIR, "interval": "30min", "outputsize": 120, "apikey": API_KEY}
+    params = {"symbol": pair, "interval": "30min", "outputsize": 120, "apikey": API_KEY}
     r = requests.get(url, params=params, timeout=15)
     data = r.json()
     if data.get("status") == "error" or "values" not in data:
-        print("TwelveData ERROR:", data)
+        if DEBUG_MODE: print(f"TwelveData ERROR for {pair}:", data)
         return None
     df = pd.DataFrame(data["values"])
     df["close"] = df["close"].astype(float)
     df["high"]  = df["high"].astype(float)
     df["low"]   = df["low"].astype(float)
-    df = df.iloc[::-1].reset_index(drop=True)
-    return df
+    return df.iloc[::-1].reset_index(drop=True)
 
 # ====== ANALYSIS ======
-def analyze(debug=False):
-    df = get_market_data()
-    if df is None or len(df) < 60:
-        return "WAIT", 0, ["Market data unavailable"], "NO_DATA", None, None, None
+def analyze_pair(pair):
+    df = get_market_data(pair)
+    if df is None or len(df)<60:
+        return None
 
-    # EMA, RSI, ATR
     df["ema_fast"] = df["close"].ewm(span=20).mean()
     df["ema_slow"] = df["close"].ewm(span=50).mean()
     delta = df["close"].diff()
@@ -115,11 +113,8 @@ def analyze(debug=False):
 
     trend = "UP" if df["ema_fast"].iloc[-1] > df["ema_slow"].iloc[-1] else "DOWN"
     rsi_zone = "NORMAL"
-    if df["rsi"].iloc[-1] < 35: rsi_zone="OVERSOLD"
-    elif df["rsi"].iloc[-1] > 65: rsi_zone="OVERBOUGHT"
-
-    # tentukan strategi fleksibel (trend_follow / counter_trend)
-    mode = "trend_follow" if rsi_zone != "OVERBOUGHT" else "counter_trend"
+    if df["rsi"].iloc[-1]<35: rsi_zone="OVERSOLD"
+    elif df["rsi"].iloc[-1]>65: rsi_zone="OVERBOUGHT"
 
     state = f"{trend}_{rsi_zone}"
     memory.setdefault(state, {"BUY":1,"SELL":1,"WAIT":1})
@@ -127,48 +122,37 @@ def analyze(debug=False):
     confidence = 40
     reason = ["EMA trend confirmed"]
     if rsi_zone=="NORMAL":
-        confidence+=30
-        reason.append("RSI normal zone")
+        confidence+=30; reason.append("RSI normal zone")
     elif rsi_zone=="OVERSOLD" and trend=="UP":
-        confidence+=20
-        reason.append("RSI oversold in uptrend")
+        confidence+=20; reason.append("RSI oversold in uptrend")
     elif rsi_zone=="OVERBOUGHT" and trend=="DOWN":
-        confidence+=20
-        reason.append("RSI overbought in downtrend")
+        confidence+=20; reason.append("RSI overbought in downtrend")
     confidence += random.randint(0,5)
 
     action = max(memory[state], key=memory[state].get)
-    if random.random()<0.05:
-        action = random.choice(["BUY","SELL","WAIT"])
-    if confidence < conf["min_confidence"]:
-        action="WAIT"
+    if random.random()<0.05: action=random.choice(["BUY","SELL","WAIT"])
+    if confidence<MIN_CONFIDENCE: action="WAIT"
 
-    # TP / SL
-    tp, sl = (None, None)
-    if action=="BUY":
-        tp = last_price + last_atr*1.5
-        sl = last_price - last_atr*1.0
-    elif action=="SELL":
-        tp = last_price - last_atr*1.5
-        sl = last_price + last_atr*1.0
+    tp, sl = None, None
+    if action=="BUY": tp,last_price+last_atr*1.5,sl=last_price-last_atr*1.0
+    elif action=="SELL": tp,last_price-last_atr*1.5,sl=last_price+last_atr*1.0
 
-    if debug:
-        print("===== DEBUG INFO =====")
+    if DEBUG_MODE:
+        print(f"===== DEBUG INFO ({pair}) =====")
         print(f"Last Price: {last_price:.5f}")
         print(f"EMA Fast: {df['ema_fast'].iloc[-1]:.5f}, EMA Slow: {df['ema_slow'].iloc[-1]:.5f}")
         print(f"RSI: {df['rsi'].iloc[-1]:.2f}, ATR: {last_atr:.5f}")
-        print(f"Trend: {trend}, RSI Zone: {rsi_zone}, Mode: {mode}")
+        print(f"Trend: {trend}, RSI Zone: {rsi_zone}")
         print(f"Memory Probabilities: {memory[state]}")
         print(f"Chosen Action: {action}, Confidence: {confidence}%")
-        if tp is not None and sl is not None:
-            print(f"TP: {tp:.5f}, SL: {sl:.5f}")
 
-    return action, confidence, reason, state, tp, sl, (30,120)
+    return {"pair":pair,"action":action,"confidence":confidence,"reason":reason,"state":state,"tp":tp,"sl":sl,"hold":(30,120)}
 
 # ====== UPDATE LEARNING ======
-def update_learning(action,tp,sl):
+def update_learning(result):
+    action,tp,sl = result["action"],result["tp"],result["sl"]
     if action=="WAIT": return
-    df=get_market_data()
+    df = get_market_data(result["pair"])
     if df is None or len(df)<2: return
     last_price = df["close"].iloc[-1]
     prev_price = df["close"].iloc[-2]
@@ -184,32 +168,39 @@ def update_learning(action,tp,sl):
     if not status: return
 
     wib_now = now_wib()
-    send_telegram(f"⚡ TP/SL Triggered ⚡\nPAIR:{PAIR}\nACTION:{action}\nRESULT:{status}\nPROFIT:{profit:.5f}\nTIME:{wib_now.strftime('%Y-%m-%d %H:%M')} WIB")
-
+    send_telegram(f"⚡ TP/SL Triggered ⚡\nPAIR:{result['pair']}\nACTION:{action}\nRESULT:{status}\nPROFIT:{profit:.5f}\nTIME:{wib_now.strftime('%Y-%m-%d %H:%M')} WIB")
     equity["balance"] += profit
     equity["history"].append({"time":wib_now.isoformat(),"result":status,"profit":profit,"balance":equity["balance"]})
 
-    # update memory ke pastebin
     api_user_key = pastebin_login()
-    if api_user_key:
-        save_memory_to_pastebin(memory, api_user_key)
+    if api_user_key: save_memory_to_pastebin(memory, api_user_key)
 
 # ====== MAIN ======
-def main(debug=False):
-    action, confidence, reason, state, tp, sl, hold = analyze(debug=debug)
+def main():
+    best_result = None
+    for pair in PAIR_LIST:
+        result = analyze_pair(pair)
+        if result and (not best_result or result["confidence"] > best_result["confidence"]):
+            best_result = result
+
+    if not best_result:
+        print("No valid market data available.")
+        return
+
     wib_now = now_wib()
     msg = (
-        f"PAIR:{PAIR}\nTF:{TF}\nSIGNAL:{action}\nCONFIDENCE:{confidence}% (min {conf['min_confidence']}%)\nSTATE:{state}\nREASON:\n- " +
-        "\n- ".join(reason)
+        f"PAIR:{best_result['pair']}\nTF:{TF}\nSIGNAL:{best_result['action']}\n"
+        f"CONFIDENCE:{best_result['confidence']}% (min {MIN_CONFIDENCE}%)\nSTATE:{best_result['state']}\nREASON:\n- " +
+        "\n- ".join(best_result['reason'])
     )
-    if tp is not None and sl is not None:
-        msg += f"\nTP:{tp:.5f}\nSL:{sl:.5f}\nHOLD:{hold[0]}-{hold[1]} menit"
+    if best_result["tp"] and best_result["sl"]:
+        msg += f"\nTP:{best_result['tp']:.5f}\nSL:{best_result['sl']:.5f}\nHOLD:{best_result['hold'][0]}-{best_result['hold'][1]} menit"
     msg += f"\nTIME:{wib_now.strftime('%Y-%m-%d %H:%M')} WIB"
+
     print(msg)
-    if action!="WAIT":
+    if best_result["action"]!="WAIT":
         send_telegram(msg)
-        update_learning(action,tp,sl)
+        update_learning(best_result)
 
 if __name__=="__main__":
-    # jalankan dengan debug mode True untuk testing
-    main(debug=True)
+    main()
