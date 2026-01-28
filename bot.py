@@ -8,7 +8,7 @@ API_KEY   = os.getenv("API_KEY")
 PASTEBIN_API_DEV_KEY = os.getenv("PASTEBIN_API_DEV_KEY")
 PASTEBIN_USERNAME    = os.getenv("PASTEBIN_USERNAME")
 PASTEBIN_PASSWORD    = os.getenv("PASTEBIN_PASSWORD")
-PASTEBIN_RAW_URL     = os.getenv("PASTEBIN_RAW_URL")
+PASTEBIN_RAW_URL     = os.getenv("PASTEBIN_RAW_URL")  # URL raw memory.json
 
 if not all([BOT_TOKEN, CHAT_ID, API_KEY, PASTEBIN_API_DEV_KEY, PASTEBIN_USERNAME, PASTEBIN_PASSWORD, PASTEBIN_RAW_URL]):
     raise Exception("ENV missing: check all required secrets!")
@@ -20,6 +20,11 @@ TF   = "M30"
 WIB = timezone(timedelta(hours=7))
 def now_wib():
     return datetime.now(timezone.utc).astimezone(WIB)
+
+# ====== FILES ======
+MEMORY_FILE = "memory.json"
+CONF_FILE   = "confidence.json"
+EQUITY_FILE = "equity.json"
 
 # ====== TELEGRAM ======
 def send_telegram(text):
@@ -67,7 +72,7 @@ def save_memory_to_pastebin(memory_dict, api_user_key):
     if r.status_code == 200:
         print("Memory updated to Pastebin:", r.text)
 
-# ====== INIT ======
+# ====== INIT FILES ======
 memory = load_memory()
 conf   = {"min_confidence": 70}
 equity = {"balance": 1000.0, "history": []}
@@ -88,13 +93,13 @@ def get_market_data():
     df = df.iloc[::-1].reset_index(drop=True)
     return df
 
-# ====== ANALYSIS (DEBUG MODE) ======
-def analyze(debug=True):
+# ====== ANALYSIS ======
+def analyze(debug=False):
     df = get_market_data()
     if df is None or len(df) < 60:
         return "WAIT", 0, ["Market data unavailable"], "NO_DATA", None, None, None
 
-    # Indicators
+    # EMA, RSI, ATR
     df["ema_fast"] = df["close"].ewm(span=20).mean()
     df["ema_slow"] = df["close"].ewm(span=50).mean()
     delta = df["close"].diff()
@@ -108,48 +113,44 @@ def analyze(debug=True):
     last_price = df["close"].iloc[-1]
     last_atr = df["atr"].iloc[-1]
 
-    # Trend & RSI zones
     trend = "UP" if df["ema_fast"].iloc[-1] > df["ema_slow"].iloc[-1] else "DOWN"
     rsi_zone = "NORMAL"
     if df["rsi"].iloc[-1] < 35: rsi_zone="OVERSOLD"
     elif df["rsi"].iloc[-1] > 65: rsi_zone="OVERBOUGHT"
 
-    # Determine strategy mode
-    if trend=="UP" and rsi_zone=="OVERBOUGHT":
-        mode = "counter_trend"
-    elif trend=="DOWN" and rsi_zone=="OVERSOLD":
-        mode = "counter_trend"
-    elif abs(df["ema_fast"].iloc[-1]-df["ema_slow"].iloc[-1])/last_price < 0.0015:
-        mode = "range_trade"
-    else:
-        mode = "trend_follow"
+    # tentukan strategi fleksibel (trend_follow / counter_trend)
+    mode = "trend_follow" if rsi_zone != "OVERBOUGHT" else "counter_trend"
 
-    state = f"{trend}_{rsi_zone}_{mode}"
+    state = f"{trend}_{rsi_zone}"
     memory.setdefault(state, {"BUY":1,"SELL":1,"WAIT":1})
 
-    # Confidence
     confidence = 40
-    reason = [f"EMA trend: {trend}, mode: {mode}"]
-    if rsi_zone=="NORMAL": confidence+=30; reason.append("RSI normal zone")
-    elif rsi_zone=="OVERSOLD" and trend=="UP": confidence+=20; reason.append("RSI oversold in uptrend")
-    elif rsi_zone=="OVERBOUGHT" and trend=="DOWN": confidence+=20; reason.append("RSI overbought in downtrend")
+    reason = ["EMA trend confirmed"]
+    if rsi_zone=="NORMAL":
+        confidence+=30
+        reason.append("RSI normal zone")
+    elif rsi_zone=="OVERSOLD" and trend=="UP":
+        confidence+=20
+        reason.append("RSI oversold in uptrend")
+    elif rsi_zone=="OVERBOUGHT" and trend=="DOWN":
+        confidence+=20
+        reason.append("RSI overbought in downtrend")
     confidence += random.randint(0,5)
 
-    # Decide action based on memory
     action = max(memory[state], key=memory[state].get)
-    if random.random()<0.05: action = random.choice(["BUY","SELL","WAIT"])
-    if confidence < conf["min_confidence"]: action="WAIT"
+    if random.random()<0.05:
+        action = random.choice(["BUY","SELL","WAIT"])
+    if confidence < conf["min_confidence"]:
+        action="WAIT"
 
-    # TP/SL based on mode
+    # TP / SL
     tp, sl = (None, None)
     if action=="BUY":
-        mult = last_atr*1.5 if mode=="trend_follow" else last_atr*1.0
-        tp = last_price + mult
-        sl = last_price - mult
+        tp = last_price + last_atr*1.5
+        sl = last_price - last_atr*1.0
     elif action=="SELL":
-        mult = last_atr*1.5 if mode=="trend_follow" else last_atr*1.0
-        tp = last_price - mult
-        sl = last_price + mult
+        tp = last_price - last_atr*1.5
+        sl = last_price + last_atr*1.0
 
     if debug:
         print("===== DEBUG INFO =====")
@@ -159,8 +160,8 @@ def analyze(debug=True):
         print(f"Trend: {trend}, RSI Zone: {rsi_zone}, Mode: {mode}")
         print(f"Memory Probabilities: {memory[state]}")
         print(f"Chosen Action: {action}, Confidence: {confidence}%")
-        print(f"TP: {tp:.5f}, SL: {sl:.5f}")
-        print("======================")
+        if tp is not None and sl is not None:
+            print(f"TP: {tp:.5f}, SL: {sl:.5f}")
 
     return action, confidence, reason, state, tp, sl, (30,120)
 
@@ -188,19 +189,20 @@ def update_learning(action,tp,sl):
     equity["balance"] += profit
     equity["history"].append({"time":wib_now.isoformat(),"result":status,"profit":profit,"balance":equity["balance"]})
 
+    # update memory ke pastebin
     api_user_key = pastebin_login()
     if api_user_key:
         save_memory_to_pastebin(memory, api_user_key)
 
 # ====== MAIN ======
-def main():
-    action, confidence, reason, state, tp, sl, hold = analyze(debug=True)
+def main(debug=False):
+    action, confidence, reason, state, tp, sl, hold = analyze(debug=debug)
     wib_now = now_wib()
     msg = (
         f"PAIR:{PAIR}\nTF:{TF}\nSIGNAL:{action}\nCONFIDENCE:{confidence}% (min {conf['min_confidence']}%)\nSTATE:{state}\nREASON:\n- " +
         "\n- ".join(reason)
     )
-    if tp and sl:
+    if tp is not None and sl is not None:
         msg += f"\nTP:{tp:.5f}\nSL:{sl:.5f}\nHOLD:{hold[0]}-{hold[1]} menit"
     msg += f"\nTIME:{wib_now.strftime('%Y-%m-%d %H:%M')} WIB"
     print(msg)
@@ -209,4 +211,5 @@ def main():
         update_learning(action,tp,sl)
 
 if __name__=="__main__":
-    main()
+    # jalankan dengan debug mode True untuk testing
+    main(debug=True)
