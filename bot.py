@@ -10,8 +10,8 @@ PASTEBIN_USERNAME    = os.getenv("PASTEBIN_USERNAME")
 PASTEBIN_PASSWORD    = os.getenv("PASTEBIN_PASSWORD")
 PASTEBIN_RAW_URL     = os.getenv("PASTEBIN_RAW_URL")  # URL raw memory.json
 PAIR_LIST             = os.getenv("PAIR_LIST", "EUR/USD").split(",")
-MIN_CONFIDENCE        = int(os.getenv("MIN_CONFIDENCE", "70"))
-DEBUG_MODE            = os.getenv("DEBUG_MODE", "1") == "1"
+min_conf_env = os.getenv("MIN_CONFIDENCE")
+MIN_CONFIDENCE = int(min_conf_env) if min_conf_env and min_conf_env.isdigit() else 70DEBUG_MODE            = os.getenv("DEBUG_MODE", "1") == "1"
 
 if not all([BOT_TOKEN, CHAT_ID, API_KEY, PASTEBIN_API_DEV_KEY, PASTEBIN_USERNAME, PASTEBIN_PASSWORD, PASTEBIN_RAW_URL]):
     raise Exception("ENV missing: check all required secrets!")
