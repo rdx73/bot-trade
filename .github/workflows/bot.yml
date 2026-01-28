@@ -3,7 +3,7 @@ name: Auto Trade Bot
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *" # setiap 30 menit (M30)
+    - cron: "0,30 * * * *" # setiap 30 menit (M30)
 
 concurrency:
   group: auto-trade-bot
