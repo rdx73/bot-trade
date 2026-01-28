@@ -3,7 +3,7 @@ name: Auto Trade Bot
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "*/30 * * * *" # setiap 30 menit (M30)
 
 concurrency:
   group: auto-trade-bot
@@ -36,4 +36,9 @@ jobs:
           PASTEBIN_USERNAME: ${{ secrets.PASTEBIN_USERNAME }}
           PASTEBIN_PASSWORD: ${{ secrets.PASTEBIN_PASSWORD }}
           PASTEBIN_RAW_URL: ${{ secrets.PASTEBIN_RAW_URL }}
-        run: python bot.py
+          PAIR_LIST: ${{ secrets.PAIR_LIST }}   # contoh: "EUR/USD,GBP/USD,USD/JPY"
+          MIN_CONFIDENCE: ${{ secrets.MIN_CONFIDENCE }} # default 70
+          DEBUG_MODE: ${{ secrets.DEBUG_MODE }} # "True" atau "False"
+        run: |
+          echo "Starting Auto Trade Bot..."
+          python bot.py
