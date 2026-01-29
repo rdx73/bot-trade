@@ -22,9 +22,11 @@ WIB = timezone(timedelta(hours=7))
 def now_wib():
     return datetime.now(timezone.utc).astimezone(WIB)
 
-# ====== M30 TIMING ======
+# ====== M30 TIMING (FIXED) ======
 def valid_m30_time():
-    # toleransi GitHub Actions (0–2 & 30–32)
+    # debug mode bypass M30 check
+    if DEBUG_MODE:
+        return True
     return now_wib().minute % 30 < 3
 
 # ====== TELEGRAM ======
@@ -122,9 +124,9 @@ def analyze(pair):
     recent_high = df["high"].iloc[-20:].max()
 
     dz_signal = None
-    if last_price <= recent_low * 1.005:  # ±0.5% dari support
+    if last_price <= recent_low * 1.002:  # dekat support
         dz_signal = "BUY"
-    elif last_price >= recent_high * 0.995:  # ±0.5% dari resistance
+    elif last_price >= recent_high * 0.998:  # dekat resistance
         dz_signal = "SELL"
 
     state = f"{trend}_{rsi_zone}"
@@ -155,11 +157,13 @@ def analyze(pair):
     confidence += random.randint(0,5)
 
     # Decide action
-    if dz_signal:
-        action = dz_signal  # DZ prioritas tinggi
+    action = max(memory[state], key=memory[state].get)
+    if confidence >= MIN_CONFIDENCE:
+        action = dz_signal if dz_signal else action
     else:
-        if confidence >= MIN_CONFIDENCE:
-            action = max(memory[state], key=memory[state].get)
+        # responsif: peluang kecil ambil action walau confidence rendah
+        if dz_signal and random.random() < 0.5:
+            action = dz_signal
         else:
             action = "WAIT"
 
@@ -171,29 +175,19 @@ def analyze(pair):
         tp = last_price - atr*1.5
         sl = last_price + atr*1.0
 
-    return action, confidence, reason, state, tp, sl
+    return action, confidence, reason, state, tp, sl, dz_signal
 
 # ====== MAIN ======
 def main():
     t = now_wib().strftime("%Y-%m-%d %H:%M")
     send_telegram(f"🚀 Bot started & running\nTIME: {t} WIB")
 
-    if not valid_m30_time():
-        msg = (
-            "⏳ BOT CHECK\n"
-            "STATUS: Not M30 close yet\n"
-            f"TIME: {t} WIB"
-        )
-        print(msg)
-        send_telegram(msg)
-        return
-
     for pair in PAIR_LIST:
         result = analyze(pair)
         if not result:
             continue
 
-        action, confidence, reason, state, tp, sl = result
+        action, confidence, reason, state, tp, sl, dz_signal = result
 
         msg = (
             f"PAIR: {pair}\n"
@@ -206,6 +200,9 @@ def main():
 
         if tp and sl:
             msg += f"\nTP: {tp:.5f}\nSL: {sl:.5f}\nHOLD: 30–120 menit"
+
+        if dz_signal:
+            msg += f"\nDZ SIGNAL: {dz_signal}"
 
         msg += f"\nTIME: {t} WIB"
 
