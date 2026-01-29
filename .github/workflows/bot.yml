@@ -1,9 +1,9 @@
 name: Auto Trade Bot
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:   # Bisa dijalankan manual
   schedule:
-    - cron: "*/1 * * * *"  # setiap 1 menit UTC → cek M30 WIB (UTC+7)
+    - cron: "*/1 * * * *"  # Setiap 1 menit UTC → cek close price M30 WIB (UTC+7)
 
 concurrency:
   group: auto-trade-bot
@@ -27,29 +27,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas requests
 
+      - name: Debug ENV (Optional)
+        run: |
+          echo "PAIR_LIST: $PAIR_LIST"
+          echo "MIN_CONFIDENCE: $MIN_CONFIDENCE"
+          echo "DEBUG_MODE: $DEBUG_MODE"
+
       - name: Run bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           API_KEY: ${{ secrets.API_KEY }}
-          PASTEBIN_API_DEV_KEY: ${{ secrets.PASTEBIN_API_DEV_KEY }}
-          PASTEBIN_USERNAME: ${{ secrets.PASTEBIN_USERNAME }}
-          PASTEBIN_PASSWORD: ${{ secrets.PASTEBIN_PASSWORD }}
           PASTEBIN_RAW_URL: ${{ secrets.PASTEBIN_RAW_URL }}
           PAIR_LIST: ${{ secrets.PAIR_LIST }}
           MIN_CONFIDENCE: ${{ secrets.MIN_CONFIDENCE }}
           DEBUG_MODE: ${{ secrets.DEBUG_MODE }}
         run: |
-          echo "Starting Auto Trade Bot..."
+          echo "🚀 Starting Auto Trade Bot..."
           python bot.py
-
-      - name: Check DZ Signals (Debug)
-        if: ${{ env.DEBUG_MODE == '1' }}
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          API_KEY: ${{ secrets.API_KEY }}
-          PAIR_LIST: ${{ secrets.PAIR_LIST }}
-        run: |
-          echo "Checking DZ Signals..."
-          python dz_run.py
