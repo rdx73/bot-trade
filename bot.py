@@ -13,7 +13,9 @@ PASTEBIN_RAW_URL     = os.getenv("PASTEBIN_RAW_URL")
 
 PAIR_LIST = [p.strip() for p in os.getenv("PAIR_LIST", "EUR/USD").split(",")]
 
-MIN_CONFIDENCE = int(os.getenv("MIN_CONFIDENCE", "70"))
+min_conf = os.getenv("MIN_CONFIDENCE", "").strip()
+MIN_CONFIDENCE = int(_min_conf) if _min_conf.isdigit() else 70
+
 DEBUG_MODE = os.getenv("DEBUG_MODE", "1") == "1"
 
 if not all([BOT_TOKEN, CHAT_ID, API_KEY, PASTEBIN_RAW_URL]):
