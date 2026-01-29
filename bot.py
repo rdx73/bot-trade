@@ -5,11 +5,13 @@ from datetime import datetime, timedelta, timezone
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID   = os.getenv("CHAT_ID")
 API_KEY   = os.getenv("API_KEY")
-PASTEBIN_RAW_URL = os.getenv("PASTEBIN_RAW_URL")
+
+PASTEBIN_RAW_URL     = os.getenv("PASTEBIN_RAW_URL")
 PAIR_LIST = [p.strip() for p in os.getenv("PAIR_LIST", "EUR/USD").split(",")]
 
 _min_conf = os.getenv("MIN_CONFIDENCE", "").strip()
 MIN_CONFIDENCE = int(_min_conf) if _min_conf.isdigit() else 70
+
 DEBUG_MODE = os.getenv("DEBUG_MODE", "1") == "1"
 
 if not all([BOT_TOKEN, CHAT_ID, API_KEY, PASTEBIN_RAW_URL]):
@@ -120,9 +122,9 @@ def analyze(pair):
     recent_high = df["high"].iloc[-20:].max()
 
     dz_signal = None
-    if last_price <= recent_low * 1.002:  # dekat support
+    if last_price <= recent_low * 1.005:  # ±0.5% dari support
         dz_signal = "BUY"
-    elif last_price >= recent_high * 0.998:  # dekat resistance
+    elif last_price >= recent_high * 0.995:  # ±0.5% dari resistance
         dz_signal = "SELL"
 
     state = f"{trend}_{rsi_zone}"
@@ -153,12 +155,11 @@ def analyze(pair):
     confidence += random.randint(0,5)
 
     # Decide action
-    action = max(memory[state], key=memory[state].get)
-    if confidence >= MIN_CONFIDENCE:
-        action = dz_signal if dz_signal else action
+    if dz_signal:
+        action = dz_signal  # DZ prioritas tinggi
     else:
-        if dz_signal and random.random() < 0.5:
-            action = dz_signal
+        if confidence >= MIN_CONFIDENCE:
+            action = max(memory[state], key=memory[state].get)
         else:
             action = "WAIT"
 
