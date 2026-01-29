@@ -180,9 +180,11 @@ def main():
 
         print(msg)
 
-        # kirim telegram (WAIT dikirim kalau DEBUG)
-        if DEBUG_MODE or action != "WAIT":
-            send_telegram(msg)
+        # === SELALU KIRIM TELEGRAM ===
+        if action == "WAIT":
+            msg = "⏸ WAIT SIGNAL\n" + msg
+
+        send_telegram(msg)
 
 if __name__ == "__main__":
     main()
