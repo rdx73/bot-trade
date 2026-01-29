@@ -50,22 +50,29 @@ jobs:
           python bot.py
 
       - name: Check DZ Signals (Debug)
-        if: ${{ env.DEBUG_MODE == '1' }}
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          API_KEY: ${{ secrets.API_KEY }}
+          PAIR_LIST: ${{ secrets.PAIR_LIST }}
+          DEBUG_MODE: ${{ secrets.DEBUG_MODE }}
         run: |
           python3 - <<EOF
-import bot
-
-for pair in bot.PAIR_LIST:
-    df = bot.get_market_data(pair)
-    if df is None:
-        continue
-    last_price = df['close'].iloc[-1]
-    recent_low = df['low'].iloc[-20:].min()
-    recent_high = df['high'].iloc[-20:].max()
-    dz_signal = None
-    if last_price <= recent_low * 1.002:
-        dz_signal = 'BUY'
-    elif last_price >= recent_high * 0.998:
-        dz_signal = 'SELL'
-    print(f'{pair} | Last: {last_price} | Low: {recent_low} | High: {recent_high} | DZ Signal: {dz_signal}')
+import os
+if os.getenv('DEBUG_MODE') != '1':
+    print("DEBUG_MODE != 1, skipping DZ check")
+else:
+    import bot
+    for pair in bot.PAIR_LIST:
+        df = bot.get_market_data(pair)
+        if df is None:
+            continue
+        last_price = df['close'].iloc[-1]
+        recent_low = df['low'].iloc[-20:].min()
+        recent_high = df['high'].iloc[-20:].max()
+        dz_signal = None
+        if last_price <= recent_low * 1.002:
+            dz_signal = 'BUY'
+        elif last_price >= recent_high * 0.998:
+            dz_signal = 'SELL'
+        print(f'{pair} | Last: {last_price} | Low: {recent_low} | High: {recent_high} | DZ Signal: {dz_signal}')
 EOF
