@@ -51,21 +51,17 @@ jobs:
           python bot.py
 
       - name: Check DZ Signals (Debug)
+        if: ${{ env.DEBUG_MODE == '1' }}
         env:
-          PAIR_LIST: ${{ secrets.PAIR_LIST }}
-          DEBUG_MODE: ${{ secrets.DEBUG_MODE }}
           API_KEY: ${{ secrets.API_KEY }}
+          PAIR_LIST: ${{ secrets.PAIR_LIST }}
         run: |
-          if [ "$DEBUG_MODE" = "1" ]; then
-            python - <<EOF
+          python3 - <<'EOF'
 import bot
-import pandas as pd
-
 for pair in bot.PAIR_LIST:
     df = bot.get_market_data(pair)
-    if df is None:
+    if df is None: 
         continue
-
     last_price = df['close'].iloc[-1]
     recent_low = df['low'].iloc[-20:].min()
     recent_high = df['high'].iloc[-20:].max()
@@ -74,7 +70,5 @@ for pair in bot.PAIR_LIST:
         dz_signal = 'BUY'
     elif last_price >= recent_high * 0.998:
         dz_signal = 'SELL'
-
     print(f'{pair} | Last: {last_price} | Low: {recent_low} | High: {recent_high} | DZ Signal: {dz_signal}')
 EOF
-          fi
