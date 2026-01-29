@@ -14,7 +14,7 @@ PASTEBIN_RAW_URL     = os.getenv("PASTEBIN_RAW_URL")
 PAIR_LIST = [p.strip() for p in os.getenv("PAIR_LIST", "EUR/USD").split(",")]
 
 min_conf = os.getenv("MIN_CONFIDENCE", "").strip()
-MIN_CONFIDENCE = int(_min_conf) if _min_conf.isdigit() else 70
+MIN_CONFIDENCE = int(min_conf) if min_conf.isdigit() else 70
 
 DEBUG_MODE = os.getenv("DEBUG_MODE", "1") == "1"
 
