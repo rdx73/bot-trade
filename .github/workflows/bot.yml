@@ -3,7 +3,7 @@ name: Auto Trade Bot
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/1 * * * *"
+    - cron: "*/1 * * * *"  # setiap menit, supaya DZ cepat terdeteksi
 
 concurrency:
   group: auto-trade-bot
@@ -52,7 +52,9 @@ jobs:
       - name: Check DZ Signals (Debug)
         if: ${{ env.DEBUG_MODE == '1' }}
         run: |
-          echo "import bot
+          cat > dz_debug.py << 'EOF'
+import bot
+
 for pair in bot.PAIR_LIST:
     df = bot.get_market_data(pair)
     if df is None:
@@ -65,5 +67,6 @@ for pair in bot.PAIR_LIST:
         dz_signal = 'BUY'
     elif last_price >= recent_high * 0.998:
         dz_signal = 'SELL'
-    print(f'{pair} | Last: {last_price} | Low: {recent_low} | High: {recent_high} | DZ Signal: {dz_signal}')" > dz_debug.py
+    print(f'{pair} | Last: {last_price} | Low: {recent_low} | High: {recent_high} | DZ Signal: {dz_signal}')
+EOF
           python dz_debug.py
