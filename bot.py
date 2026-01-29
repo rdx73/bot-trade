@@ -5,13 +5,11 @@ from datetime import datetime, timedelta, timezone
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID   = os.getenv("CHAT_ID")
 API_KEY   = os.getenv("API_KEY")
-
-PASTEBIN_RAW_URL     = os.getenv("PASTEBIN_RAW_URL")
+PASTEBIN_RAW_URL = os.getenv("PASTEBIN_RAW_URL")
 PAIR_LIST = [p.strip() for p in os.getenv("PAIR_LIST", "EUR/USD").split(",")]
 
 _min_conf = os.getenv("MIN_CONFIDENCE", "").strip()
 MIN_CONFIDENCE = int(_min_conf) if _min_conf.isdigit() else 70
-
 DEBUG_MODE = os.getenv("DEBUG_MODE", "1") == "1"
 
 if not all([BOT_TOKEN, CHAT_ID, API_KEY, PASTEBIN_RAW_URL]):
@@ -22,14 +20,9 @@ WIB = timezone(timedelta(hours=7))
 def now_wib():
     return datetime.now(timezone.utc).astimezone(WIB)
 
-<<<<<<< HEAD
-# ====== M30 TIMING (FIXED) ======
-def valid_m30_time():
-    # toleransi GitHub Actions (0–2 & 30–32)
-=======
 # ====== M30 TIMING ======
 def valid_m30_time():
->>>>>>> ff65ab3 (Update bot.py: lebih responsif + Demand Zone strategy)
+    # toleransi GitHub Actions (0–2 & 30–32)
     return now_wib().minute % 30 < 3
 
 # ====== TELEGRAM ======
@@ -164,8 +157,7 @@ def analyze(pair):
     if confidence >= MIN_CONFIDENCE:
         action = dz_signal if dz_signal else action
     else:
-        # responsif: peluang kecil ambil action walau confidence rendah
-        if dz_signal and random.random() < 0.5:  # 50% probabilitas
+        if dz_signal and random.random() < 0.5:
             action = dz_signal
         else:
             action = "WAIT"
