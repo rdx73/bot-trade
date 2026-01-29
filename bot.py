@@ -151,9 +151,10 @@ def analyze(pair):
     return action, confidence, reason, state, tp, sl
 
 # ====== MAIN ======
-send_telegram("🚀 Bot started & running")
+
 def main():
     t = now_wib().strftime("%Y-%m-%d %H:%M")
+    send_telegram(f"🚀 Bot started & running\nTIME: {t} WIB")
 
     if not valid_m30_time():
         msg = (
