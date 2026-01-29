@@ -151,9 +151,18 @@ def analyze(pair):
     return action, confidence, reason, state, tp, sl
 
 # ====== MAIN ======
+send_telegram("🚀 Bot started & running")
 def main():
+    t = now_wib().strftime("%Y-%m-%d %H:%M")
+
     if not valid_m30_time():
-        print("⏳ Not M30 close yet")
+        msg = (
+            "⏳ BOT CHECK\n"
+            "STATUS: Not M30 close yet\n"
+            f"TIME: {t} WIB"
+        )
+        print(msg)
+        send_telegram(msg)
         return
 
     for pair in PAIR_LIST:
@@ -162,7 +171,6 @@ def main():
             continue
 
         action, confidence, reason, state, tp, sl = result
-        t = now_wib().strftime("%Y-%m-%d %H:%M")
 
         msg = (
             f"PAIR: {pair}\n"
@@ -178,12 +186,10 @@ def main():
 
         msg += f"\nTIME: {t} WIB"
 
-        print(msg)
-
-        # === SELALU KIRIM TELEGRAM ===
         if action == "WAIT":
             msg = "⏸ WAIT SIGNAL\n" + msg
 
+        print(msg)
         send_telegram(msg)
 
 if __name__ == "__main__":
