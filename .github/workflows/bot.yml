@@ -1,13 +1,15 @@
 name: Auto Trade Bot
 
 on:
-workflow_dispatch:   # bisa dijalankan manual
-schedule:
-- cron: "0,30 * * * *"  # setiap 0 & 30 menit UTC → setara M30 WIB (UTC+7)
+  workflow_dispatch:   # bisa dijalankan manual
+  schedule:
+    # Run setiap menit, supaya DZ cepat terdeteksi
+    - cron: "*/1 * * * *"
 
 concurrency:
-group: auto-trade-bot
-cancel-in-progress: true
+  group: auto-trade-bot
+  cancel-in-progress: true
+
 
 jobs:
 run-bot:
