@@ -1,47 +1,38 @@
 import bot
 from datetime import datetime, timezone, timedelta
 
-# WIB timezone
+# ===== TIMEZONE WIB =====
 WIB = timezone(timedelta(hours=7))
 def now_wib():
     return datetime.now(timezone.utc).astimezone(WIB)
 
+# ===== Waktu sekarang =====
 t = now_wib().strftime("%Y-%m-%d %H:%M")
-print(f"⏱ Checking at {t} WIB")
+print(f"⏱ Checking DZ signals at {t} WIB")
 
-# Cek M30 close
-if bot.valid_m30_time():
-    print("✅ M30 close detected, running analysis...")
-    for pair in bot.PAIR_LIST:
-        result = bot.analyze(pair)
-        if not result:
-            continue
-        action, confidence, reason, state, tp, sl = result
+# ===== LOOP per PAIR =====
+for pair in bot.PAIR_LIST:
+    df = bot.get_market_data(pair)
+    if df is None or len(df) < 20:
+        print(f"{pair} | No sufficient data")
+        continue
 
-        dz_signal = None
-        df = bot.get_market_data(pair)
-        if df is not None:
-            last_price = df['close'].iloc[-1]
-            recent_low = df['low'].iloc[-20:].min()
-            recent_high = df['high'].iloc[-20:].max()
-            if last_price <= recent_low * 1.002:
-                dz_signal = "BUY"
-            elif last_price >= recent_high * 0.998:
-                dz_signal = "SELL"
+    last_price = df['close'].iloc[-1]
+    recent_low = df['low'].iloc[-20:].min()
+    recent_high = df['high'].iloc[-20:].max()
 
-        msg = (
-            f"PAIR: {pair}\n"
-            f"TF: 30M\n"
-            f"SIGNAL: {action}\n"
-            f"CONFIDENCE: {confidence}% (min {bot.MIN_CONFIDENCE}%)\n"
-            f"STATE: {state}\n"
-            f"REASON:\n- " + "\n- ".join(reason)
-        )
-        if tp and sl:
-            msg += f"\nTP: {tp:.5f}\nSL: {sl:.5f}\nHOLD: 30–120 menit"
-        if dz_signal:
-            msg += f"\nDZ SIGNAL: {dz_signal}"
-        msg += f"\nTIME: {t} WIB"
-        print(msg)
-else:
-    print("⏳ Not M30 close yet, skipping analysis.")
+    dz_signal = None
+    if last_price <= recent_low * 1.002:
+        dz_signal = "BUY"
+    elif last_price >= recent_high * 0.998:
+        dz_signal = "SELL"
+
+    msg = (
+        f"PAIR: {pair}\n"
+        f"Last Close: {last_price}\n"
+        f"Recent Low: {recent_low}\n"
+        f"Recent High: {recent_high}\n"
+        f"DZ SIGNAL: {dz_signal if dz_signal else 'WAIT'}\n"
+        f"TIME: {t} WIB"
+    )
+    print(msg)
