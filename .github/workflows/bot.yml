@@ -3,44 +3,42 @@ name: Auto Trade Bot
 on:
   workflow_dispatch:   # bisa dijalankan manual
   schedule:
-    # Run setiap menit, supaya DZ cepat terdeteksi
-    - cron: "*/1 * * * *"
+    - cron: "0,30 * * * *"  # setiap 0 & 30 menit UTC → setara M30 WIB (UTC+7)
 
 concurrency:
   group: auto-trade-bot
   cancel-in-progress: true
 
-
 jobs:
-run-bot:
-runs-on: ubuntu-latest
+  run-bot:
+    runs-on: ubuntu-latest
 
-steps:  
-  - name: Checkout repo  
-    uses: actions/checkout@v4  
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-  - name: Setup Python  
-    uses: actions/setup-python@v5  
-    with:  
-      python-version: "3.12"  
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-  - name: Install dependencies  
-    run: |  
-      python -m pip install --upgrade pip  
-      pip install pandas requests  
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas requests
 
-  - name: Run bot  
-    env:  
-      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}  
-      CHAT_ID: ${{ secrets.CHAT_ID }}  
-      API_KEY: ${{ secrets.API_KEY }}  
-      PASTEBIN_API_DEV_KEY: ${{ secrets.PASTEBIN_API_DEV_KEY }}  
-      PASTEBIN_USERNAME: ${{ secrets.PASTEBIN_USERNAME }}  
-      PASTEBIN_PASSWORD: ${{ secrets.PASTEBIN_PASSWORD }}  
-      PASTEBIN_RAW_URL: ${{ secrets.PASTEBIN_RAW_URL }}  
-      PAIR_LIST: ${{ secrets.PAIR_LIST }}  
-      MIN_CONFIDENCE: ${{ secrets.MIN_CONFIDENCE }}  
-      DEBUG_MODE: ${{ secrets.DEBUG_MODE }}  
-    run: |  
-      echo "Starting Auto Trade Bot..."  
-      python bot.py
+      - name: Run bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          API_KEY: ${{ secrets.API_KEY }}
+          PASTEBIN_API_DEV_KEY: ${{ secrets.PASTEBIN_API_DEV_KEY }}
+          PASTEBIN_USERNAME: ${{ secrets.PASTEBIN_USERNAME }}
+          PASTEBIN_PASSWORD: ${{ secrets.PASTEBIN_PASSWORD }}
+          PASTEBIN_RAW_URL: ${{ secrets.PASTEBIN_RAW_URL }}
+          PAIR_LIST: ${{ secrets.PAIR_LIST }}
+          MIN_CONFIDENCE: ${{ secrets.MIN_CONFIDENCE }}
+          DEBUG_MODE: ${{ secrets.DEBUG_MODE }}
+        run: |
+          echo "Starting Auto Trade Bot..."
+          python bot.py
