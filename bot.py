@@ -1,4 +1,4 @@
-import requests, pandas as pd, random, json, os, time
+import requests, pandas as pd, random, json, os
 from datetime import datetime, timedelta, timezone
 
 # ====== CONFIG (ENV) ======
@@ -13,13 +13,11 @@ PASTEBIN_RAW_URL     = os.getenv("PASTEBIN_RAW_URL")
 
 PAIR_LIST = [p.strip() for p in os.getenv("PAIR_LIST", "EUR/USD").split(",")]
 
-min_conf_env = os.getenv("MIN_CONFIDENCE", "").strip()
-MIN_CONFIDENCE = int(min_conf_env) if min_conf_env.isdigit() else 70
-
+MIN_CONFIDENCE = int(os.getenv("MIN_CONFIDENCE", "70"))
 DEBUG_MODE = os.getenv("DEBUG_MODE", "1") == "1"
 
-if not all([BOT_TOKEN, CHAT_ID, API_KEY, PASTEBIN_API_DEV_KEY, PASTEBIN_USERNAME, PASTEBIN_PASSWORD, PASTEBIN_RAW_URL]):
-    raise Exception("ENV missing, check secrets")
+if not all([BOT_TOKEN, CHAT_ID, API_KEY, PASTEBIN_RAW_URL]):
+    raise Exception("❌ ENV missing, check GitHub Secrets")
 
 # ====== TIMEZONE ======
 WIB = timezone(timedelta(hours=7))
@@ -27,15 +25,21 @@ WIB = timezone(timedelta(hours=7))
 def now_wib():
     return datetime.now(timezone.utc).astimezone(WIB)
 
-# ====== M30 TIMING FILTER ======
+# ====== M30 TIMING (FIXED) ======
 def valid_m30_time():
-    return now_wib().minute in (0, 30)
+    # toleransi GitHub Actions (0–2 & 30–32)
+    return now_wib().minute % 30 < 3
 
 # ====== TELEGRAM ======
 def send_telegram(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     try:
-        requests.post(url, data={"chat_id": CHAT_ID, "text": text}, timeout=10)
+        r = requests.post(
+            url,
+            data={"chat_id": CHAT_ID, "text": text},
+            timeout=10
+        )
+        print("Telegram:", r.status_code, r.text)
     except Exception as e:
         print("Telegram error:", e)
 
@@ -45,8 +49,8 @@ def load_memory():
         r = requests.get(PASTEBIN_RAW_URL, timeout=10)
         if r.status_code == 200:
             return json.loads(r.text)
-    except:
-        pass
+    except Exception as e:
+        print("Memory load error:", e)
     return {}
 
 memory = load_memory()
@@ -65,6 +69,7 @@ def get_market_data(pair):
     )
     data = r.json()
     if "values" not in data:
+        print("No data for", pair, data)
         return None
 
     df = pd.DataFrame(data["values"])
@@ -89,16 +94,27 @@ def analyze(pair):
     df["rsi"] = 100 - (100 / (1 + rs))
 
     df["tr"] = df[["high","low","close"]].apply(
-        lambda x: max(x["high"]-x["low"], abs(x["high"]-x["close"]), abs(x["low"]-x["close"])), axis=1)
+        lambda x: max(
+            x["high"] - x["low"],
+            abs(x["high"] - x["close"]),
+            abs(x["low"] - x["close"])
+        ),
+        axis=1
+    )
     df["atr"] = df["tr"].rolling(14).mean()
 
     last_price = df["close"].iloc[-1]
     atr = df["atr"].iloc[-1]
 
     trend = "UP" if df["ema_fast"].iloc[-1] > df["ema_slow"].iloc[-1] else "DOWN"
-    rsi_zone = "NORMAL"
-    if df["rsi"].iloc[-1] < 35: rsi_zone = "OVERSOLD"
-    elif df["rsi"].iloc[-1] > 65: rsi_zone = "OVERBOUGHT"
+    rsi_val = df["rsi"].iloc[-1]
+
+    if rsi_val < 35:
+        rsi_zone = "OVERSOLD"
+    elif rsi_val > 65:
+        rsi_zone = "OVERBOUGHT"
+    else:
+        rsi_zone = "NORMAL"
 
     state = f"{trend}_{rsi_zone}"
     memory.setdefault(state, {"BUY":1, "SELL":1, "WAIT":1})
@@ -111,10 +127,12 @@ def analyze(pair):
         reason.append("RSI normal zone")
     elif rsi_zone == "OVERSOLD" and trend == "UP":
         confidence += 20
+        reason.append("RSI oversold in uptrend")
     elif rsi_zone == "OVERBOUGHT" and trend == "DOWN":
         confidence += 20
+        reason.append("RSI overbought in downtrend")
 
-    confidence += random.randint(0,5)
+    confidence += random.randint(0, 5)
 
     action = max(memory[state], key=memory[state].get)
     if confidence < MIN_CONFIDENCE:
@@ -133,7 +151,7 @@ def analyze(pair):
 # ====== MAIN ======
 def main():
     if not valid_m30_time():
-        print("⏳ Waiting M30 candle...")
+        print("⏳ Not M30 close yet")
         return
 
     for pair in PAIR_LIST:
@@ -145,18 +163,23 @@ def main():
         t = now_wib().strftime("%Y-%m-%d %H:%M")
 
         msg = (
-            f"PAIR:{pair}\nTF:30min\nSIGNAL:{action}\n"
-            f"CONFIDENCE:{confidence}% (min {MIN_CONFIDENCE}%)\n"
-            f"STATE:{state}\nREASON:\n- " + "\n- ".join(reason)
+            f"PAIR: {pair}\n"
+            f"TF: 30M\n"
+            f"SIGNAL: {action}\n"
+            f"CONFIDENCE: {confidence}% (min {MIN_CONFIDENCE}%)\n"
+            f"STATE: {state}\n"
+            f"REASON:\n- " + "\n- ".join(reason)
         )
 
         if tp and sl:
-            msg += f"\nTP:{tp:.5f}\nSL:{sl:.5f}\nHOLD:30-120 menit"
+            msg += f"\nTP: {tp:.5f}\nSL: {sl:.5f}\nHOLD: 30–120 menit"
 
-        msg += f"\nTIME:{t} WIB"
+        msg += f"\nTIME: {t} WIB"
 
         print(msg)
-        if action != "WAIT":
+
+        # kirim telegram (WAIT dikirim kalau DEBUG)
+        if DEBUG_MODE or action != "WAIT":
             send_telegram(msg)
 
 if __name__ == "__main__":
