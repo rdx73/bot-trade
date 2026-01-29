@@ -1,78 +1,44 @@
 name: Auto Trade Bot
 
 on:
-  workflow_dispatch:
-  schedule:
-    - cron: "*/1 * * * *"  # setiap menit, supaya DZ cepat terdeteksi
+workflow_dispatch:   # bisa dijalankan manual
+schedule:
+- cron: "0,30 * * * *"  # setiap 0 & 30 menit UTC → setara M30 WIB (UTC+7)
 
 concurrency:
-  group: auto-trade-bot
-  cancel-in-progress: true
+group: auto-trade-bot
+cancel-in-progress: true
 
 jobs:
-  run-bot:
-    runs-on: ubuntu-latest
+run-bot:
+runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+steps:  
+  - name: Checkout repo  
+    uses: actions/checkout@v4  
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+  - name: Setup Python  
+    uses: actions/setup-python@v5  
+    with:  
+      python-version: "3.12"  
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pandas requests
+  - name: Install dependencies  
+    run: |  
+      python -m pip install --upgrade pip  
+      pip install pandas requests  
 
-      - name: Debug ENV
-        run: |
-          echo "PAIR_LIST: $PAIR_LIST"
-          echo "MIN_CONFIDENCE: $MIN_CONFIDENCE"
-          echo "DEBUG_MODE: $DEBUG_MODE"
-
-      - name: Run bot
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          API_KEY: ${{ secrets.API_KEY }}
-          PASTEBIN_API_DEV_KEY: ${{ secrets.PASTEBIN_API_DEV_KEY }}
-          PASTEBIN_USERNAME: ${{ secrets.PASTEBIN_USERNAME }}
-          PASTEBIN_PASSWORD: ${{ secrets.PASTEBIN_PASSWORD }}
-          PASTEBIN_RAW_URL: ${{ secrets.PASTEBIN_RAW_URL }}
-          PAIR_LIST: ${{ secrets.PAIR_LIST }}
-          MIN_CONFIDENCE: ${{ secrets.MIN_CONFIDENCE }}
-          DEBUG_MODE: ${{ secrets.DEBUG_MODE }}
-        run: |
-          echo "Starting Auto Trade Bot..."
-          python bot.py
-
-      - name: Check DZ Signals (Debug)
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          API_KEY: ${{ secrets.API_KEY }}
-          PAIR_LIST: ${{ secrets.PAIR_LIST }}
-          DEBUG_MODE: ${{ secrets.DEBUG_MODE }}
-        run: |
-          python3 - <<EOF
-import os
-if os.getenv('DEBUG_MODE') != '1':
-    print("DEBUG_MODE != 1, skipping DZ check")
-else:
-    import bot
-    for pair in bot.PAIR_LIST:
-        df = bot.get_market_data(pair)
-        if df is None:
-            continue
-        last_price = df['close'].iloc[-1]
-        recent_low = df['low'].iloc[-20:].min()
-        recent_high = df['high'].iloc[-20:].max()
-        dz_signal = None
-        if last_price <= recent_low * 1.002:
-            dz_signal = 'BUY'
-        elif last_price >= recent_high * 0.998:
-            dz_signal = 'SELL'
-        print(f'{pair} | Last: {last_price} | Low: {recent_low} | High: {recent_high} | DZ Signal: {dz_signal}')
-EOF
+  - name: Run bot  
+    env:  
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}  
+      CHAT_ID: ${{ secrets.CHAT_ID }}  
+      API_KEY: ${{ secrets.API_KEY }}  
+      PASTEBIN_API_DEV_KEY: ${{ secrets.PASTEBIN_API_DEV_KEY }}  
+      PASTEBIN_USERNAME: ${{ secrets.PASTEBIN_USERNAME }}  
+      PASTEBIN_PASSWORD: ${{ secrets.PASTEBIN_PASSWORD }}  
+      PASTEBIN_RAW_URL: ${{ secrets.PASTEBIN_RAW_URL }}  
+      PAIR_LIST: ${{ secrets.PAIR_LIST }}  
+      MIN_CONFIDENCE: ${{ secrets.MIN_CONFIDENCE }}  
+      DEBUG_MODE: ${{ secrets.DEBUG_MODE }}  
+    run: |  
+      echo "Starting Auto Trade Bot..."  
+      python bot.py
