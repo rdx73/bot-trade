@@ -1,7 +1,7 @@
 name: Auto Trade Bot
 
 on:
-  workflow_dispatch:   # bisa dijalankan manual
+  workflow_dispatch:
   schedule:
     # Run setiap menit supaya DZ cepat terdeteksi
     - cron: "*/1 * * * *"
@@ -51,9 +51,9 @@ jobs:
           python bot.py
 
       - name: Check DZ Signals (Debug)
-        if: ${{ env.DEBUG_MODE == '1' }}
         run: |
-          python - <<EOF
+          if [ "$DEBUG_MODE" = "1" ]; then
+            python - <<EOF
 import bot, pandas as pd
 
 for pair in bot.PAIR_LIST:
@@ -72,3 +72,4 @@ for pair in bot.PAIR_LIST:
 
     print(f'{pair} | Last: {last_price} | Low: {recent_low} | High: {recent_high} | DZ Signal: {dz_signal}')
 EOF
+          fi
