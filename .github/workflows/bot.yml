@@ -52,7 +52,7 @@ jobs:
       - name: Check DZ Signals (Debug)
         if: ${{ env.DEBUG_MODE == '1' }}
         run: |
-          cat > dz_debug.py << 'EOF'
+          python3 - <<EOF
 import bot
 
 for pair in bot.PAIR_LIST:
@@ -69,4 +69,3 @@ for pair in bot.PAIR_LIST:
         dz_signal = 'SELL'
     print(f'{pair} | Last: {last_price} | Low: {recent_low} | High: {recent_high} | DZ Signal: {dz_signal}')
 EOF
-          python dz_debug.py
