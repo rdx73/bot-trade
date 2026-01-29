@@ -1,7 +1,7 @@
 name: Auto Trade Bot
 
 on:
-  workflow_dispatch:   # bisa dijalankan manual
+  workflow_dispatch:
   schedule:
     - cron: "*/1 * * * *"  # setiap 1 menit UTC → cek M30 WIB (UTC+7)
 
@@ -42,3 +42,14 @@ jobs:
         run: |
           echo "Starting Auto Trade Bot..."
           python bot.py
+
+      - name: Check DZ Signals (Debug)
+        if: ${{ env.DEBUG_MODE == '1' }}
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          API_KEY: ${{ secrets.API_KEY }}
+          PAIR_LIST: ${{ secrets.PAIR_LIST }}
+        run: |
+          echo "Checking DZ Signals..."
+          python dz_run.py
