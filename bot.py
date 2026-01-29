@@ -6,11 +6,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID   = os.getenv("CHAT_ID")
 API_KEY   = os.getenv("API_KEY")
 
-PASTEBIN_API_DEV_KEY = os.getenv("PASTEBIN_API_DEV_KEY")
-PASTEBIN_USERNAME    = os.getenv("PASTEBIN_USERNAME")
-PASTEBIN_PASSWORD    = os.getenv("PASTEBIN_PASSWORD")
 PASTEBIN_RAW_URL     = os.getenv("PASTEBIN_RAW_URL")
-
 PAIR_LIST = [p.strip() for p in os.getenv("PAIR_LIST", "EUR/USD").split(",")]
 
 _min_conf = os.getenv("MIN_CONFIDENCE", "").strip()
@@ -26,9 +22,14 @@ WIB = timezone(timedelta(hours=7))
 def now_wib():
     return datetime.now(timezone.utc).astimezone(WIB)
 
+<<<<<<< HEAD
 # ====== M30 TIMING (FIXED) ======
 def valid_m30_time():
     # toleransi GitHub Actions (0–2 & 30–32)
+=======
+# ====== M30 TIMING ======
+def valid_m30_time():
+>>>>>>> ff65ab3 (Update bot.py: lebih responsif + Demand Zone strategy)
     return now_wib().minute % 30 < 3
 
 # ====== TELEGRAM ======
@@ -86,15 +87,18 @@ def analyze(pair):
     if df is None or len(df) < 60:
         return None
 
+    # EMA
     df["ema_fast"] = df["close"].ewm(span=20).mean()
     df["ema_slow"] = df["close"].ewm(span=50).mean()
 
+    # RSI
     delta = df["close"].diff()
     gain = delta.where(delta > 0, 0)
     loss = -delta.where(delta < 0, 0)
     rs = gain.rolling(14).mean() / loss.rolling(14).mean()
     df["rsi"] = 100 - (100 / (1 + rs))
 
+    # ATR
     df["tr"] = df[["high","low","close"]].apply(
         lambda x: max(
             x["high"] - x["low"],
@@ -107,6 +111,7 @@ def analyze(pair):
     last_price = df["close"].iloc[-1]
     atr = df["atr"].iloc[-1]
 
+    # Trend
     trend = "UP" if df["ema_fast"].iloc[-1] > df["ema_slow"].iloc[-1] else "DOWN"
     rsi_val = df["rsi"].iloc[-1]
 
@@ -116,6 +121,16 @@ def analyze(pair):
         rsi_zone = "OVERBOUGHT"
     else:
         rsi_zone = "NORMAL"
+
+    # Demand Zone (Support/Resistance)
+    recent_low = df["low"].iloc[-20:].min()
+    recent_high = df["high"].iloc[-20:].max()
+
+    dz_signal = None
+    if last_price <= recent_low * 1.002:  # dekat support
+        dz_signal = "BUY"
+    elif last_price >= recent_high * 0.998:  # dekat resistance
+        dz_signal = "SELL"
 
     state = f"{trend}_{rsi_zone}"
     memory.setdefault(state, {"BUY":1, "SELL":1, "WAIT":1})
@@ -133,11 +148,27 @@ def analyze(pair):
         confidence += 20
         reason.append("RSI overbought in downtrend")
 
+    # Demand Zone Boost
+    if dz_signal == "BUY":
+        confidence += 15
+        reason.append("Near demand zone (support) → BUY bias")
+    elif dz_signal == "SELL":
+        confidence += 15
+        reason.append("Near resistance zone → SELL bias")
+
+    # Randomized minor boost (responsiveness)
     confidence += random.randint(0,5)
 
+    # Decide action
     action = max(memory[state], key=memory[state].get)
-    if confidence < MIN_CONFIDENCE:
-        action = "WAIT"
+    if confidence >= MIN_CONFIDENCE:
+        action = dz_signal if dz_signal else action
+    else:
+        # responsif: peluang kecil ambil action walau confidence rendah
+        if dz_signal and random.random() < 0.5:  # 50% probabilitas
+            action = dz_signal
+        else:
+            action = "WAIT"
 
     tp = sl = None
     if action == "BUY":
