@@ -1,7 +1,7 @@
 name: Auto Trade Bot
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:   # bisa dijalankan manual
   schedule:
     # Run setiap menit supaya DZ cepat terdeteksi
     - cron: "*/1 * * * *"
@@ -51,10 +51,15 @@ jobs:
           python bot.py
 
       - name: Check DZ Signals (Debug)
+        env:
+          PAIR_LIST: ${{ secrets.PAIR_LIST }}
+          DEBUG_MODE: ${{ secrets.DEBUG_MODE }}
+          API_KEY: ${{ secrets.API_KEY }}
         run: |
           if [ "$DEBUG_MODE" = "1" ]; then
             python - <<EOF
-import bot, pandas as pd
+import bot
+import pandas as pd
 
 for pair in bot.PAIR_LIST:
     df = bot.get_market_data(pair)
