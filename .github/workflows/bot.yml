@@ -9,10 +9,6 @@ concurrency:
   group: auto-trade-bot
   cancel-in-progress: true
 
-concurrency:
-  group: auto-trade-bot
-  cancel-in-progress: true
-
 jobs:
   run-bot:
     runs-on: ubuntu-latest
