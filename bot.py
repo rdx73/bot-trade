@@ -13,8 +13,8 @@ PASTEBIN_RAW_URL     = os.getenv("PASTEBIN_RAW_URL")
 
 PAIR_LIST = [p.strip() for p in os.getenv("PAIR_LIST", "EUR/USD").split(",")]
 
-min_conf = os.getenv("MIN_CONFIDENCE", "").strip()
-MIN_CONFIDENCE = int(min_conf) if min_conf.isdigit() else 70
+_min_conf = os.getenv("MIN_CONFIDENCE", "").strip()
+MIN_CONFIDENCE = int(_min_conf) if _min_conf.isdigit() else 70
 
 DEBUG_MODE = os.getenv("DEBUG_MODE", "1") == "1"
 
@@ -23,7 +23,6 @@ if not all([BOT_TOKEN, CHAT_ID, API_KEY, PASTEBIN_RAW_URL]):
 
 # ====== TIMEZONE ======
 WIB = timezone(timedelta(hours=7))
-
 def now_wib():
     return datetime.now(timezone.utc).astimezone(WIB)
 
@@ -34,13 +33,11 @@ def valid_m30_time():
 
 # ====== TELEGRAM ======
 def send_telegram(text):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    import urllib.parse
+    text_enc = urllib.parse.quote(text)
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage?chat_id={CHAT_ID}&text={text_enc}"
     try:
-        r = requests.post(
-            url,
-            data={"chat_id": CHAT_ID, "text": text},
-            timeout=10
-        )
+        r = requests.get(url, timeout=10)
         print("Telegram:", r.status_code, r.text)
     except Exception as e:
         print("Telegram error:", e)
@@ -59,26 +56,29 @@ memory = load_memory()
 
 # ====== MARKET DATA ======
 def get_market_data(pair):
-    r = requests.get(
-        "https://api.twelvedata.com/time_series",
-        params={
-            "symbol": pair,
-            "interval": "30min",
-            "outputsize": 120,
-            "apikey": API_KEY
-        },
-        timeout=15
-    )
-    data = r.json()
-    if "values" not in data:
-        print("No data for", pair, data)
+    try:
+        r = requests.get(
+            "https://api.twelvedata.com/time_series",
+            params={
+                "symbol": pair,
+                "interval": "30min",
+                "outputsize": 120,
+                "apikey": API_KEY
+            },
+            timeout=15
+        )
+        data = r.json()
+        if "values" not in data:
+            print("No data for", pair, data)
+            return None
+        df = pd.DataFrame(data["values"])
+        df = df.iloc[::-1].reset_index(drop=True)
+        for c in ["close","high","low"]:
+            df[c] = df[c].astype(float)
+        return df
+    except Exception as e:
+        print("Market data error:", e)
         return None
-
-    df = pd.DataFrame(data["values"])
-    df = df.iloc[::-1].reset_index(drop=True)
-    for c in ["close", "high", "low"]:
-        df[c] = df[c].astype(float)
-    return df
 
 # ====== ANALYSIS ======
 def analyze(pair):
@@ -100,8 +100,7 @@ def analyze(pair):
             x["high"] - x["low"],
             abs(x["high"] - x["close"]),
             abs(x["low"] - x["close"])
-        ),
-        axis=1
+        ), axis=1
     )
     df["atr"] = df["tr"].rolling(14).mean()
 
@@ -134,7 +133,7 @@ def analyze(pair):
         confidence += 20
         reason.append("RSI overbought in downtrend")
 
-    confidence += random.randint(0, 5)
+    confidence += random.randint(0,5)
 
     action = max(memory[state], key=memory[state].get)
     if confidence < MIN_CONFIDENCE:
@@ -142,16 +141,15 @@ def analyze(pair):
 
     tp = sl = None
     if action == "BUY":
-        tp = last_price + atr * 1.5
-        sl = last_price - atr * 1.0
+        tp = last_price + atr*1.5
+        sl = last_price - atr*1.0
     elif action == "SELL":
-        tp = last_price - atr * 1.5
-        sl = last_price + atr * 1.0
+        tp = last_price - atr*1.5
+        sl = last_price + atr*1.0
 
     return action, confidence, reason, state, tp, sl
 
 # ====== MAIN ======
-
 def main():
     t = now_wib().strftime("%Y-%m-%d %H:%M")
     send_telegram(f"🚀 Bot started & running\nTIME: {t} WIB")
