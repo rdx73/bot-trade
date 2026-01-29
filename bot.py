@@ -1,5 +1,5 @@
 import requests, pandas as pd, random, json, os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone, timedelta
 
 # ====== CONFIG (ENV) ======
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -21,10 +21,6 @@ if not all([BOT_TOKEN, CHAT_ID, API_KEY, PASTEBIN_RAW_URL]):
 WIB = timezone(timedelta(hours=7))
 def now_wib():
     return datetime.now(timezone.utc).astimezone(WIB)
-
-# ====== M30 TIMING ======
-def valid_m30_time():
-    return now_wib().minute % 30 < 3
 
 # ====== TELEGRAM ======
 def send_telegram(text):
@@ -169,28 +165,18 @@ def analyze(pair):
         tp = last_price - atr*1.5
         sl = last_price + atr*1.0
 
-    return action, confidence, reason, state, tp, sl
+    return action, confidence, reason, state, tp, sl, dz_signal
 
 # ====== MAIN ======
 def main():
     t = now_wib().strftime("%Y-%m-%d %H:%M")
     send_telegram(f"🚀 Bot started & running\nTIME: {t} WIB")
 
-    if not valid_m30_time():
-        msg = (
-            "⏳ BOT CHECK\n"
-            "STATUS: Not M30 close yet\n"
-            f"TIME: {t} WIB"
-        )
-        print(msg)
-        send_telegram(msg)
-        return
-
     for pair in PAIR_LIST:
         result = analyze(pair)
         if not result:
             continue
-        action, confidence, reason, state, tp, sl = result
+        action, confidence, reason, state, tp, sl, dz_signal = result
 
         msg = (
             f"PAIR: {pair}\n"
@@ -204,6 +190,8 @@ def main():
             msg += f"\nTP: {tp:.5f}\nSL: {sl:.5f}\nHOLD: 30–120 menit"
         if action == "WAIT":
             msg = "⏸ WAIT SIGNAL\n" + msg
+        if dz_signal:
+            msg += f"\nDZ SIGNAL: {dz_signal}"
 
         print(msg)
         send_telegram(msg)
