@@ -6,7 +6,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID   = os.getenv("CHAT_ID")
 API_KEY   = os.getenv("API_KEY")
 
-PASTEBIN_RAW_URL     = os.getenv("PASTEBIN_RAW_URL")
+PASTEBIN_RAW_URL = os.getenv("PASTEBIN_RAW_URL")
 PAIR_LIST = [p.strip() for p in os.getenv("PAIR_LIST", "EUR/USD").split(",")]
 
 _min_conf = os.getenv("MIN_CONFIDENCE", "").strip()
@@ -22,11 +22,8 @@ WIB = timezone(timedelta(hours=7))
 def now_wib():
     return datetime.now(timezone.utc).astimezone(WIB)
 
-# ====== M30 TIMING (FIXED) ======
+# ====== M30 TIMING ======
 def valid_m30_time():
-    # debug mode bypass M30 check
-    if DEBUG_MODE:
-        return True
     return now_wib().minute % 30 < 3
 
 # ====== TELEGRAM ======
@@ -124,9 +121,9 @@ def analyze(pair):
     recent_high = df["high"].iloc[-20:].max()
 
     dz_signal = None
-    if last_price <= recent_low * 1.002:  # dekat support
+    if last_price <= recent_low * 1.002:
         dz_signal = "BUY"
-    elif last_price >= recent_high * 0.998:  # dekat resistance
+    elif last_price >= recent_high * 0.998:
         dz_signal = "SELL"
 
     state = f"{trend}_{rsi_zone}"
@@ -153,15 +150,12 @@ def analyze(pair):
         confidence += 15
         reason.append("Near resistance zone → SELL bias")
 
-    # Randomized minor boost (responsiveness)
     confidence += random.randint(0,5)
 
-    # Decide action
     action = max(memory[state], key=memory[state].get)
     if confidence >= MIN_CONFIDENCE:
         action = dz_signal if dz_signal else action
     else:
-        # responsif: peluang kecil ambil action walau confidence rendah
         if dz_signal and random.random() < 0.5:
             action = dz_signal
         else:
@@ -175,19 +169,28 @@ def analyze(pair):
         tp = last_price - atr*1.5
         sl = last_price + atr*1.0
 
-    return action, confidence, reason, state, tp, sl, dz_signal
+    return action, confidence, reason, state, tp, sl
 
 # ====== MAIN ======
 def main():
     t = now_wib().strftime("%Y-%m-%d %H:%M")
     send_telegram(f"🚀 Bot started & running\nTIME: {t} WIB")
 
+    if not valid_m30_time():
+        msg = (
+            "⏳ BOT CHECK\n"
+            "STATUS: Not M30 close yet\n"
+            f"TIME: {t} WIB"
+        )
+        print(msg)
+        send_telegram(msg)
+        return
+
     for pair in PAIR_LIST:
         result = analyze(pair)
         if not result:
             continue
-
-        action, confidence, reason, state, tp, sl, dz_signal = result
+        action, confidence, reason, state, tp, sl = result
 
         msg = (
             f"PAIR: {pair}\n"
@@ -197,15 +200,8 @@ def main():
             f"STATE: {state}\n"
             f"REASON:\n- " + "\n- ".join(reason)
         )
-
         if tp and sl:
             msg += f"\nTP: {tp:.5f}\nSL: {sl:.5f}\nHOLD: 30–120 menit"
-
-        if dz_signal:
-            msg += f"\nDZ SIGNAL: {dz_signal}"
-
-        msg += f"\nTIME: {t} WIB"
-
         if action == "WAIT":
             msg = "⏸ WAIT SIGNAL\n" + msg
 
